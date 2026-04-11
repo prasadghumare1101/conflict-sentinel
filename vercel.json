@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "installCommand": "npm install && cd frontend && npm install",
+  "buildCommand": "cd frontend && npm run build",
+  "outputDirectory": "frontend/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "functions": {
+    "api/gemini-proxy.js":         { "maxDuration": 60 },
+    "api/predict-conflict.js":     { "maxDuration": 60 },
+    "api/conflict-events.js":      { "maxDuration": 30 },
+    "api/conflict-news.js":        { "maxDuration": 20 },
+    "api/cyber-threats.js":        { "maxDuration": 20 },
+    "api/earthquakes.js":          { "maxDuration": 15 },
+    "api/natural-events.js":       { "maxDuration": 15 },
+    "api/humanitarian.js":         { "maxDuration": 10 },
+    "api/internet-disruptions.js": { "maxDuration": 15 }
+  }
+}

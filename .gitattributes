@@ -1,0 +1,26 @@
+# Auto-normalise line endings on checkout
+* text=auto
+
+# Force LF for these file types
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.css  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.py   text eol=lf
+*.env.example text eol=lf
+*.gitignore   text eol=lf
+
+# Binary — never touch line endings
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.svg  binary
+*.pt   binary
+*.pth  binary
+*.onnx binary
+*.bin  binary

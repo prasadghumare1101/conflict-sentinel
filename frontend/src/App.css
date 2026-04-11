@@ -1,0 +1,91 @@
+/* ── Root layout ─────────────────────────────────────────���───────────────── */
+.app-root {
+  min-height: 100vh;
+  width: 100vw;
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+
+/* ── Fullscreen map — offset right so panel never overlaps ──────────────── */
+.map-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 390px;
+  z-index: 10;
+}
+
+/* ── Right-side Intelligence Platform — always visible, no hide ─────────── */
+.intel-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2000;
+  width: 390px;
+  background: rgba(6, 10, 20, 0.98);
+  border-left: 1px solid rgba(16, 185, 129, 0.35);
+  box-shadow: -8px 0 40px rgba(0,0,0,0.7);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Panel header ────────────���──────────────────────────────────────────── */
+.intel-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  user-select: none;
+  background: rgba(16,185,129,0.06);
+  border-bottom: 1px solid rgba(16,185,129,0.15);
+  flex-shrink: 0;
+}
+
+.intel-panel__badge {
+  font-size: 14px;
+  color: #10b981;
+}
+.intel-panel__title {
+  flex: 1;
+  font-family: monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: #10b981;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.intel-panel__agents {
+  font-family: monospace;
+  font-size: 9px;
+  color: #6b7280;
+  animation: blink-agent 2s ease-in-out infinite;
+  white-space: nowrap;
+}
+.intel-panel__agents[data-active="true"] {
+  color: #10b981;
+}
+
+/* ── Panel body (full remaining height, internal scroll) ────────────────── */
+.intel-panel__body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Animations ───────────────────��─────────────────────────────────────── */
+@keyframes blink-agent {
+  0%,100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+/* ── Global element fixes ───────────────────────────────────────────────── */
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}

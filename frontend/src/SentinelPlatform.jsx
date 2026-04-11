@@ -315,28 +315,47 @@ export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscus
     setTimeout(() => { if(discussRef.current) discussRef.current.scrollTop = discussRef.current.scrollHeight; }, 50);
   };
 
-  /* ── Fetch live GDELT news on mount ── */
+  const [autoRan, setAutoRan] = useState(false);
+
+  /* ── Fetch live GDELT news on mount — global + India coverage ── */
   useEffect(()=>{
     const load = async ()=>{
       setNewsLoading(true);
       try {
-        const r = await fetch("/api/conflict-news?q=conflict+war+airstrike+missile+ceasefire+diplomacy&timespan=7d");
+        const r = await fetch("/api/conflict-news?q=conflict+war+airstrike+missile+ceasefire+india+pakistan+ukraine+russia+gaza+drone+attack+explosion&timespan=7d");
         const d = await r.json();
-        setLiveNews(d.articles||[]);
+        const articles = d.articles||[];
+        setLiveNews(articles);
+        // Auto-populate signal + run agents once when news first arrives
+        if(articles.length>0 && !autoRan){
+          const autoSignal = articles.slice(0,5).map(a=>a.title).join(" | ");
+          setSignal(autoSignal);
+          setAutoRan(true);
+        }
       } catch {}
       setNewsLoading(false);
     };
     load();
-    const iv = setInterval(load, 120000);
+    const iv = setInterval(load, 90000);
     return ()=>clearInterval(iv);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
-  /* ── Build live news context string for agent prompts ── */
+  /* ── Build rich news context for agent prompts ── */
   const buildNewsContext = () => {
-    if(!liveNews.length) return "No live news available.";
     const now = new Date().toISOString();
-    return `LIVE NEWS CONTEXT (as of ${now}):\n` +
-      liveNews.slice(0,12).map((a,i)=>`${i+1}. [${a.source||"news"}] ${a.title}`).join("\n");
+    if(!liveNews.length) return `LIVE NEWS CONTEXT (as of ${now}): No articles fetched — use verified public knowledge only, explicitly state uncertainty.`;
+    return (
+      `=== LIVE NEWS FEED — ${now} ===\n` +
+      `Source count: ${liveNews.length} articles from GDELT global aggregator\n` +
+      `CRITICAL INSTRUCTION: Base findings ONLY on headlines below. Do NOT invent events, dates, casualties, or locations not present in this feed. If uncertain, say "unverified".\n\n` +
+      liveNews.slice(0,20).map((a,i)=>{
+        const dateStr = a.date ? new Date(
+          String(a.date).slice(0,4)+"-"+String(a.date).slice(4,6)+"-"+String(a.date).slice(6,8)
+        ).toDateString() : "recent";
+        return `${String(i+1).padStart(2,"0")}. [${a.source||"unknown"}] [${dateStr}] ${a.title}`;
+      }).join("\n")
+    );
   };
 
   const setAgent = (id,status,output=null,elapsed=null)=>{
@@ -390,10 +409,15 @@ export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscus
       addDiscussion("SYSTEM","OSINT-AGENT",`Analysis initiated. ${liveNews.length} live articles available. Signal injected at ${nowISO()}. Dispatching 10 OSINT recon swarms to conflict zones.`);
       setAgent("osint","running");
       const osintRaw = await callLLM(
-        `You are a senior OSINT Intelligence Officer on a strategic war board. Your role: harvest and validate multi-source intelligence from the last 30 days.
-Respond ONLY with JSON — no markdown fences.
-Schema: {"streams":[{"source":"SIGINT|IMINT|SOCMINT|HUMINT|CYBINT","finding":"string"}],"indicators":["string"],"liveNewsUsed":number}
-Rules: (1) Extract 4-5 intelligence streams from the live news and signal. (2) Tag each indicator with tactical significance (e.g. "PRE-KINETIC: TROOP SURGE", "INFO-OPS: STATE MEDIA BLACKOUT"). (3) Note only events within the last 30 days. "liveNewsUsed" = number of live articles referenced.`,
+        `You are a senior OSINT Intelligence Officer. UTC NOW: ${nowISO()}.
+Respond ONLY with valid JSON — no markdown, no commentary outside JSON.
+Schema: {"streams":[{"source":"SIGINT|IMINT|SOCMINT|HUMINT|CYBINT","finding":"string","date":"string","verified":boolean}],"indicators":["string"],"liveNewsUsed":number}
+STRICT RULES:
+(1) Extract 4-6 intelligence streams directly quoting or paraphrasing headlines from the LIVE NEWS FEED provided. Cite the news source name in each finding.
+(2) Do NOT invent events, locations, or casualty figures not present in the news feed.
+(3) Each indicator must be tagged: e.g. "PRE-KINETIC: TROOP BUILDUP [reuters]", "INFO-OPS: STATE MEDIA BLACKOUT [ndtv]".
+(4) Include Indian subcontinent, Middle East, Eastern Europe, and Africa events if present in news.
+(5) "liveNewsUsed" = exact count of headlines you referenced.`,
         `SIGNAL: ${signal}\n\n${newsCtx}`
       );
       const osintData = parseJSON(osintRaw)||{streams:[{source:"ALL",finding:osintRaw}],indicators:[],liveNewsUsed:0};
@@ -403,12 +427,16 @@ Rules: (1) Extract 4-5 intelligence streams from the live news and signal. (2) T
       /* ── Agent 2: Threat ── */
       setAgent("threat","running");
       const threatRaw = await callLLM(
-        `You are a Strategic Threat Analyst and board-level NLP specialist. UTC: ${nowISO()}.
-Your role: score escalation risk using war doctrine frameworks (Clausewitz, DIME, PMESII-PT), detect adversary psychological operations, and identify disinformation patterns.
-Respond ONLY with JSON — no markdown.
+        `You are a Strategic Threat Analyst. UTC NOW: ${nowISO()}.
+Respond ONLY with valid JSON — no markdown.
 Schema: {"score":number,"level":"CRITICAL|HIGH|MODERATE|LOW","summary":"string","patterns":["string"]}
-Rules: (1) Score 0-100 using hard evidence from OSINT + live news. (2) Include NLP-detected PSYOP/disinformation markers in patterns. (3) Note war-doctrine phase (Shaping/Preparation/Execution/Exploitation). Provide 4-6 pattern labels.`,
-        `SIGNAL: ${signal}\n\nOSINT [OSINT-AGENT output]: ${JSON.stringify(osintData)}\n\n${newsCtx}`
+STRICT RULES:
+(1) Score 0–100 based ONLY on events confirmed in the live news feed. Do not extrapolate beyond what is reported.
+(2) summary must reference at least 2 specific news headlines by source name and approximate date.
+(3) patterns must be grounded in actual reported events — label format: "PATTERN-TYPE: description [source]".
+(4) Apply DIME/PMESII-PT framework to classify the phase: Shaping / Preparation / Execution / Exploitation.
+(5) Include India-Pakistan, Gaza, Ukraine, Sudan, Myanmar if present in news feed.`,
+        `SIGNAL: ${signal}\n\nOSINT: ${JSON.stringify(osintData)}\n\n${newsCtx}`
       );
       const threatData = parseJSON(threatRaw)||{score:70,level:"HIGH",summary:threatRaw,patterns:[]};
       setAgent("threat","done",threatData,elap());
@@ -417,12 +445,16 @@ Rules: (1) Score 0-100 using hard evidence from OSINT + live news. (2) Include N
       /* ── Agent 3: Scenario ── */
       setAgent("scenario","running");
       const scenarioRaw = await callLLM(
-        `You are the War Games Director — a board-level strategic planner combining military doctrine, psychological warfare, and geopolitical game theory. UTC: ${nowISO()}.
-Your role: simulate conflict trajectories using red team vs blue team analysis, psychological operations impact, and adversary decision trees.
-Respond ONLY with JSON — no markdown.
+        `You are the War Games Director. UTC NOW: ${nowISO()}.
+Respond ONLY with valid JSON — no markdown.
 Schema: {"scenarios":[{"name":"string","probability":number,"outcome":"string","recommendation":"string","psyopRisk":"string"}],"activeTactics":["string"],"redTeamDecision":"string","nextMoveProjection":"string"}
-Rules: (1) Generate exactly 3 scenarios: Diplomatic De-escalation, Controlled Response, Full Escalation. (2) For each: assess PSYOP impact, key decision points, and adversary psychology. (3) Probabilities sum to 100. (4) Recommendations must cite specific war tactics (e.g. "Deploy information counter-narrative", "Execute A2/AD posture"). (5) activeTactics: list 4-6 currently assessed active military/information warfare tactics. (6) redTeamDecision: what adversary is most likely planning next. (7) nextMoveProjection: specific predicted adversary action within 72h.`,
-        `SIGNAL: ${signal}\nTHREAT [THREAT-AGENT]: ${threatData.level} (${threatData.score}/100)\nDOCTRINE PATTERNS: ${threatData.patterns?.join(", ")}\n\n${newsCtx}`
+STRICT RULES:
+(1) Generate exactly 3 scenarios: "Diplomatic De-escalation", "Controlled Military Response", "Full Escalation". Probabilities must sum to 100.
+(2) Each scenario outcome must reference actual reported events from the live news feed — cite source names.
+(3) activeTactics: list 4-6 tactics CONFIRMED active based on news evidence — do not speculate beyond reported facts.
+(4) redTeamDecision: adversary's most likely next step based on their recent CONFIRMED actions in the news.
+(5) nextMoveProjection: specific predicted action within 72 hours, grounded in the threat level and news evidence. State confidence level (low/medium/high).`,
+        `SIGNAL: ${signal}\nTHREAT: ${threatData.level} (${threatData.score}/100)\nPATTERNS: ${threatData.patterns?.join(", ")}\n\n${newsCtx}`
       );
       const scenarioData = parseJSON(scenarioRaw)||{scenarios:[]};
       setAgent("scenario","done",scenarioData,elap());
@@ -432,11 +464,15 @@ Rules: (1) Generate exactly 3 scenarios: Diplomatic De-escalation, Controlled Re
       /* ── Agent 4: Civilian Impact ── */
       setAgent("civilian","running");
       const civilianRaw = await callLLM(
-        `You are the Humanitarian Impact Modeler on the strategic war board — combining demographic analysis, infrastructure vulnerability mapping, and IHL (International Humanitarian Law) assessment. UTC: ${nowISO()}.
-Respond ONLY with JSON — no markdown.
+        `You are the Humanitarian Impact Modeler. UTC NOW: ${nowISO()}.
+Respond ONLY with valid JSON — no markdown.
 Schema: {"populationAtRisk":"string","displacementRisk":"string","infrastructureRisk":"string","summary":"string","mitigationPriorities":["string"]}
-Rules: (1) Use realistic estimates with units. (2) Apply IHL frameworks (proportionality, distinction, precaution). (3) Identify dual-use infrastructure at risk. (4) Provide 3-4 mitigation priorities with specific actors (UN OCHA, ICRC, etc.). Reference last 30 days of news.`,
-        `SIGNAL: ${signal}\nTHREAT: ${threatData.level}\nWAR GAMES SCENARIOS: ${JSON.stringify(scenarioData.scenarios?.map(s=>s.name))}\n\n${newsCtx}`
+STRICT RULES:
+(1) populationAtRisk, displacementRisk, infrastructureRisk must use REAL reported figures from the live news if available (cite source). If no figure in news, use verified public UN/UNHCR baseline estimates and clearly label as "est.".
+(2) summary must mention specific countries/regions from the live news feed with their approximate reported casualty/displacement figures.
+(3) mitigationPriorities: 3-4 actionable items naming specific real organizations (UN OCHA, ICRC, WFP, MSF) relevant to the reported crisis.
+(4) Apply IHL: proportionality, distinction, precaution principles to assess compliance issues from reported events.`,
+        `SIGNAL: ${signal}\nTHREAT: ${threatData.level}\nSCENARIOS: ${JSON.stringify(scenarioData.scenarios?.map(s=>s.name))}\n\n${newsCtx}`
       );
       const civilianData = parseJSON(civilianRaw)||{populationAtRisk:"Unknown",displacementRisk:"Unknown",infrastructureRisk:"Unknown",summary:civilianRaw,mitigationPriorities:[]};
       setAgent("civilian","done",civilianData,elap());
@@ -446,9 +482,8 @@ Rules: (1) Use realistic estimates with units. (2) Apply IHL frameworks (proport
       setAgent("brief","running");
       addDiscussion("BRIEF-SYNTHESIS","ALL-AGENTS",`50-swarm intelligence fusion initiated. All 4 specialist board inputs received. Synthesizing commander-grade brief with cross-swarm source traceability. UTC: ${nowISO()}`);
       const briefRaw = await callLLM(
-        `You are the Chairman of the Strategic War Board — synthesizing a commander-grade intelligence brief from 4 specialist agents. UTC: ${nowISO()}.
-Your role: produce a definitive, cross-referenced brief that a military commander can act on immediately, covering: war doctrine, PSYOP findings, humanitarian law, and strategic recommendations.
-Respond ONLY with JSON — no markdown.
+        `You are the Chairman of the Strategic War Board. UTC NOW: ${nowISO()}.
+Respond ONLY with valid JSON — no markdown, no text outside JSON object.
 Schema: {
   "classification":"string",
   "situationAssessment":"string",
@@ -458,7 +493,13 @@ Schema: {
   "windowOfAction":"string",
   "commanderNote":"string"
 }
-Rules: (1) Every recommendation MUST cite its board agent (OSINT-OFFICER, THREAT-ANALYST, WAR-GAMES-DIRECTOR, IMPACT-MODELER). (2) Reference specific dated news events. (3) Include at least one PSYOP/information warfare recommendation. (4) windowOfAction must specify a timeframe. (5) commanderNote must address adversary psychology and strategic risk. Be precise, dated, and actionable.`,
+STRICT RULES:
+(1) situationAssessment: 2-3 sentences using ONLY confirmed events from the live news feed. Cite at least 2 news sources by name and approximate date.
+(2) keyFindings: 4-5 bullet points, each grounded in a specific reported event — format: "[DATE approx] [SOURCE] — finding".
+(3) immediateRecommendations: each must cite its board agent AND the specific news event that triggered it. Mark unverified items as "UNVERIFIED:".
+(4) windowOfAction: specific timeframe (e.g. "Next 24-72 hours") with reasoning from the evidence.
+(5) commanderNote: address adversary psychology using ONLY evidence from the live news. Do not speculate beyond reported facts.
+(6) classification: one of RESTRICTED / CONFIDENTIAL / SECRET — based on sensitivity of reported events.`,
         `SIGNAL: ${signal}
 UTC: ${nowISO()}
 
@@ -552,8 +593,8 @@ ${newsCtx}`
             </div>
             <div style={{padding:"8px 12px"}}>
               <textarea value={signal} onChange={e=>setSignal(e.target.value)}
-                placeholder="Enter threat signal or load from live news…"
-                style={{width:"100%",minHeight:68,fontSize:11,color:"#f9fafb",background:"#111827",border:"0.5px solid #374151",borderRadius:6,padding:"8px 10px",resize:"vertical",lineHeight:1.6,boxSizing:"border-box",fontFamily:"monospace"}}/>
+                placeholder="Enter region or conflict topic… e.g. 'India Pakistan border tensions', 'Gaza ceasefire update', 'Ukraine frontline Donetsk'"
+                style={{width:"100%",minHeight:110,fontSize:11,color:"#f9fafb",background:"#111827",border:"0.5px solid #374151",borderRadius:6,padding:"10px 12px",resize:"vertical",lineHeight:1.7,boxSizing:"border-box",fontFamily:"monospace"}}/>
             </div>
           </div>
 
@@ -716,28 +757,52 @@ ${newsCtx}`
       {/* ── NEWS VIEW ── */}
       {activeView==='news'&&(
         <div className="sp-scroll" style={{flex:1,overflowY:"auto",padding:"10px 12px",display:"flex",flexDirection:"column",gap:6}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-            <span style={{fontSize:8,letterSpacing:"0.14em",color:"#10b981"}}>◉ LIVE INTEL FEED — 7 DAYS</span>
-            {newsLoading&&<span style={{fontSize:8,color:"#4b5563"}}>fetching…</span>}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <span style={{fontSize:8,fontFamily:"monospace",letterSpacing:"0.14em",color:"#10b981"}}>◉ LIVE INTEL FEED — {liveNews.length} ARTICLES</span>
+            <button onClick={()=>{
+              setNewsLoading(true);
+              fetch("/api/conflict-news?q=conflict+war+airstrike+india+pakistan+ukraine+russia+gaza+missile+drone&timespan=7d")
+                .then(r=>r.json()).then(d=>setLiveNews(d.articles||[])).catch(()=>{}).finally(()=>setNewsLoading(false));
+            }} style={{fontSize:8,fontFamily:"monospace",padding:"3px 8px",border:"0.5px solid rgba(16,185,129,.35)",borderRadius:4,background:"rgba(16,185,129,.07)",color:"#10b981",cursor:"pointer"}}>
+              {newsLoading?"…":"↻ REFRESH"}
+            </button>
           </div>
-          {liveNews.slice(0,20).map((a,i)=>{
+          {newsLoading&&liveNews.length===0&&(
+            <div style={{display:"flex",flexDirection:"column",gap:8,padding:"20px 0",alignItems:"center"}}>
+              <div style={{fontSize:10,color:"#4b5563",fontFamily:"monospace"}}>Fetching live headlines…</div>
+            </div>
+          )}
+          {liveNews.slice(0,25).map((a,i)=>{
             const {icon,color}=getSourceIcon(a.url);
             const ts=a.date?new Date(String(a.date).slice(0,4)+"-"+String(a.date).slice(4,6)+"-"+String(a.date).slice(6,8)):null;
             return (
               <div key={i} onClick={()=>{setSignal(prev=>prev?prev+"\n\n"+a.title:a.title);setActiveView('agents');}}
-                style={{background:"rgba(255,255,255,.02)",border:`0.5px solid ${color}18`,borderRadius:6,padding:"7px 9px",cursor:"pointer",transition:"border-color .15s"}}
+                style={{background:"rgba(255,255,255,.02)",border:`0.5px solid ${color}18`,borderRadius:6,padding:"8px 10px",cursor:"pointer",transition:"border-color .15s"}}
                 onMouseEnter={e=>e.currentTarget.style.borderColor=`${color}55`}
                 onMouseLeave={e=>e.currentTarget.style.borderColor=`${color}18`}>
-                <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:3}}>
+                <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:4}}>
                   <span style={{fontSize:10}}>{icon}</span>
-                  <span style={{fontSize:8,color,letterSpacing:"0.06em"}}>{a.source||"NEWS"}</span>
-                  <span style={{fontSize:8,color:"#4b5563",marginLeft:"auto"}}>{ts?ts.toLocaleDateString("en-GB",{day:"2-digit",month:"short"}):""}</span>
+                  <span style={{fontSize:8,fontFamily:"monospace",color,letterSpacing:"0.06em",fontWeight:600}}>{a.source||"NEWS"}</span>
+                  <span style={{fontSize:8,color:"#4b5563",marginLeft:"auto",fontFamily:"monospace"}}>{ts?ts.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"}):""}</span>
                 </div>
-                <div style={{fontSize:10,color:"#d1d5db",lineHeight:1.4}}>{a.title?.slice(0,100)}{a.title?.length>100?"…":""}</div>
+                <div style={{fontSize:11,color:"#d1d5db",lineHeight:1.5}}>{a.title}</div>
+                <div style={{marginTop:4,fontSize:8,color:"#4b5563",fontFamily:"monospace"}}>↗ click to inject into analysis</div>
               </div>
             );
           })}
-          {!newsLoading&&liveNews.length===0&&<div style={{fontSize:10,color:"#374151"}}>No live articles yet.</div>}
+          {!newsLoading&&liveNews.length===0&&(
+            <div style={{textAlign:"center",padding:"30px 10px"}}>
+              <div style={{fontSize:11,color:"#4b5563",marginBottom:8}}>No headlines loaded</div>
+              <div style={{fontSize:9,color:"#374151",fontFamily:"monospace",marginBottom:12}}>GDELT may be rate-limited. Try refreshing in 30 seconds.</div>
+              <button onClick={()=>{
+                setNewsLoading(true);
+                fetch("/api/conflict-news?q=war+conflict+attack&timespan=7d")
+                  .then(r=>r.json()).then(d=>setLiveNews(d.articles||[])).catch(()=>{}).finally(()=>setNewsLoading(false));
+              }} style={{fontSize:9,fontFamily:"monospace",padding:"5px 14px",border:"0.5px solid rgba(16,185,129,.4)",borderRadius:4,background:"rgba(16,185,129,.08)",color:"#10b981",cursor:"pointer"}}>
+                ↻ RETRY
+              </button>
+            </div>
+          )}
         </div>
       )}
 

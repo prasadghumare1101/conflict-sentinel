@@ -30,6 +30,12 @@ const KNOWN_CONFLICT_ZONES = [
   { id:'irq-01', lat:33.3406, lng:44.4009, country:'Iraq',      type:'drone',     deaths:9,   side_a:'IRGC/PMF',             side_b:'Military targets',      description:'Iranian-backed PMF Shahed-type drone strike',                   date:daysAgo(3) },
   { id:'pak-01', lat:33.7294, lng:73.0931, country:'Pakistan',  type:'airstrike', deaths:28,  side_a:'Pakistan Air Force',   side_b:'TTP positions',         description:'PAF strike on TTP militant camp — Khyber Pakhtunkhwa',         date:daysAgo(5) },
   { id:'rus-01', lat:55.7558, lng:37.6176, country:'Russia',    type:'drone',     deaths:0,   side_a:'Ukraine GUR',          side_b:'Moscow region',         description:'Ukrainian long-range drone intercepted near Moscow',             date:daysAgo(1) },
+  // Indian subcontinent
+  { id:'ind-01', lat:34.0837, lng:74.7973, country:'India',    type:'battle',    deaths:4,   side_a:'Indian Army',          side_b:'Militant groups',       description:'Counter-insurgency operation in Kashmir Valley — encounter',     date:daysAgo(3) },
+  { id:'ind-02', lat:32.7266, lng:74.8570, country:'India',    type:'airstrike', deaths:0,   side_a:'Indian Air Force',     side_b:'LoC positions',         description:'IAF patrol along Line of Control — Jammu sector',               date:daysAgo(5) },
+  { id:'pak-02', lat:34.0151, lng:71.5249, country:'Pakistan', type:'battle',    deaths:8,   side_a:'Pakistan Army',        side_b:'TTP insurgents',        description:'Pakistan Army operation against TTP in FATA region',             date:daysAgo(2) },
+  { id:'ind-03', lat:24.8170, lng:93.9368, country:'India',    type:'one-sided', deaths:2,   side_a:'Militant groups',      side_b:'Civilians',             description:'Armed militant attack in Manipur — ethnic violence ongoing',     date:daysAgo(4) },
+  { id:'ind-04', lat:18.9322, lng:82.1000, country:'India',    type:'battle',    deaths:3,   side_a:'CRPF/Security Forces', side_b:'Naxal/Maoist groups',   description:'CRPF encounter with Naxal group in Chhattisgarh',               date:daysAgo(6) },
 ];
 
 module.exports = async function handler(req, res) {

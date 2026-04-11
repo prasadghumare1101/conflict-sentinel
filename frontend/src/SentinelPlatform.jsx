@@ -244,39 +244,80 @@ function LiveNewsSidebar({articles,loading,onInjectSignal}){
 }
 
 /* ─── Live Footage Feeds ────────────────────────────────────────────────── */
+// Using direct YouTube live video IDs (channel-based embeds are deprecated)
 const LIVE_FEEDS = [
-  { name:"Al Jazeera English",  url:"https://www.youtube.com/embed/live_stream?channel=UCNye-wNBqNL5ZzHSJj3l8Bg&autoplay=1&mute=1", color:"#ef4444" },
-  { name:"DW News",             url:"https://www.youtube.com/embed/live_stream?channel=UCknLrEdhRCp1aegoMqRaCZg&autoplay=1&mute=1", color:"#3b82f6" },
-  { name:"France 24 English",   url:"https://www.youtube.com/embed/live_stream?channel=UCQfwfsi5VrQ8yKZ-UWmAoBw&autoplay=1&mute=1", color:"#1d4ed8" },
-  { name:"Bloomberg TV",        url:"https://www.youtube.com/embed/live_stream?channel=UCIALMKvObZNtJ6AmdCLP7Lg&autoplay=1&mute=1", color:"#f59e0b" },
+  { name:"Al Jazeera",   id:"nU5gyDFyB28", channel:"https://www.youtube.com/@aljazeeraenglish/live", color:"#ef4444", flag:"🌍" },
+  { name:"DW News",      id:"phLMo_K5iMo", channel:"https://www.youtube.com/@dwnews/live",           color:"#3b82f6", flag:"🇩🇪" },
+  { name:"France 24",    id:"l8PMl7tUDIE", channel:"https://www.youtube.com/@FRANCE24English/live",  color:"#6366f1", flag:"🇫🇷" },
+  { name:"Sky News",     id:"9Auq9mYxFEE", channel:"https://www.youtube.com/@SkyNews/live",          color:"#0ea5e9", flag:"🇬🇧" },
+  { name:"NDTV India",   id:"qHkqkpP3J0g", channel:"https://www.youtube.com/@ndtv/live",             color:"#f59e0b", flag:"🇮🇳" },
+  { name:"Bloomberg",    id:"dp8PhLsUcFE", channel:"https://www.youtube.com/@bloombergtv/live",      color:"#10b981", flag:"📈" },
 ];
 
 function LiveFootagePanel(){
-  const [active,setActive]=useState(0);
+  const [active, setActive] = useState(0);
+  const [errored, setErrored] = useState({});
+  const feed = LIVE_FEEDS[active];
+  const embedUrl = `https://www.youtube.com/embed/${feed.id}?autoplay=1&mute=1&rel=0&modestbranding=1`;
+
   return (
-    <div style={{background:"#0a0f1a",border:"0.5px solid #1f2937",borderRadius:8,overflow:"hidden",marginBottom:16}}>
-      <div style={{background:"rgba(239,68,68,.08)",borderBottom:"0.5px solid rgba(239,68,68,.25)",padding:"8px 14px",display:"flex",alignItems:"center",gap:8}}>
-        <div style={{width:7,height:7,borderRadius:"50%",background:"#ef4444",animation:"blink-live 1.2s ease-in-out infinite"}}/>
-        <span style={{fontSize:10,fontFamily:"monospace",letterSpacing:"0.14em",color:"#ef4444"}}>LIVE FOOTAGE — GLOBAL NEWS STREAMS</span>
+    <div style={{background:"#0a0f1a",border:"0.5px solid #1f2937",borderRadius:8,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+      {/* Header */}
+      <div style={{background:"rgba(239,68,68,.08)",borderBottom:"0.5px solid rgba(239,68,68,.25)",padding:"7px 12px",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+        <div style={{width:7,height:7,borderRadius:"50%",background:"#ef4444",animation:"blink-live 1.2s ease-in-out infinite",flexShrink:0}}/>
+        <span style={{fontSize:9,fontFamily:"monospace",letterSpacing:"0.14em",color:"#ef4444",flex:1}}>LIVE FOOTAGE — GLOBAL NEWS STREAMS</span>
         <LiveClock/>
       </div>
-      <div style={{display:"flex",gap:0,borderBottom:"0.5px solid #1f2937"}}>
+
+      {/* Channel tabs — scrollable on small screens */}
+      <div style={{display:"flex",borderBottom:"0.5px solid #1f2937",overflowX:"auto",flexShrink:0}}>
         {LIVE_FEEDS.map((f,i)=>(
-          <button key={i} onClick={()=>setActive(i)}
-            style={{flex:1,padding:"6px 4px",fontSize:9,fontFamily:"monospace",background:active===i?`${f.color}18`:"transparent",border:"none",borderBottom:active===i?`2px solid ${f.color}`:"2px solid transparent",color:active===i?f.color:"#4b5563",cursor:"pointer",transition:"all .15s",letterSpacing:"0.04em"}}>
-            {f.name}
+          <button key={i} onClick={()=>{setActive(i);}}
+            style={{flexShrink:0,padding:"7px 10px",fontSize:9,fontFamily:"monospace",
+              background:active===i?`${f.color}18`:"transparent",
+              border:"none",borderBottom:active===i?`2px solid ${f.color}`:"2px solid transparent",
+              color:active===i?f.color:"#4b5563",cursor:"pointer",transition:"all .15s",letterSpacing:"0.04em",
+              whiteSpace:"nowrap"}}>
+            {f.flag} {f.name}
           </button>
         ))}
       </div>
-      <div style={{position:"relative",paddingBottom:"36%",height:0,overflow:"hidden"}}>
-        <iframe
-          key={active}
-          src={LIVE_FEEDS[active].url}
-          style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:"none"}}
-          allow="autoplay; encrypted-media; picture-in-picture"
-          allowFullScreen
-          title={LIVE_FEEDS[active].name}
-        />
+
+      {/* Video embed */}
+      <div style={{position:"relative",paddingBottom:"56.25%",height:0,overflow:"hidden",background:"#000"}}>
+        {errored[active] ? (
+          /* Fallback when embed is blocked */
+          <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,padding:20}}>
+            <div style={{fontSize:11,color:"#6b7280",fontFamily:"monospace",textAlign:"center"}}>
+              Embed blocked by {feed.name}
+            </div>
+            <a href={feed.channel} target="_blank" rel="noopener noreferrer"
+              style={{fontSize:10,fontFamily:"monospace",padding:"8px 18px",border:"0.5px solid rgba(239,68,68,.5)",borderRadius:6,
+                background:"rgba(239,68,68,.1)",color:"#ef4444",textDecoration:"none",display:"inline-block"}}>
+              ▶ Watch {feed.name} Live on YouTube ↗
+            </a>
+          </div>
+        ) : (
+          <iframe
+            key={active}
+            src={embedUrl}
+            style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:"none"}}
+            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+            allowFullScreen
+            title={feed.name}
+            onError={()=>setErrored(prev=>({...prev,[active]:true}))}
+          />
+        )}
+      </div>
+
+      {/* Direct link row */}
+      <div style={{padding:"6px 12px",borderTop:"0.5px solid #1f2937",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+        <span style={{fontSize:8,color:"#374151",fontFamily:"monospace"}}>{feed.flag} {feed.name.toUpperCase()} — 24/7 LIVE</span>
+        <a href={feed.channel} target="_blank" rel="noopener noreferrer"
+          style={{fontSize:8,fontFamily:"monospace",color:"#10b981",textDecoration:"none",padding:"3px 8px",
+            border:"0.5px solid rgba(16,185,129,.3)",borderRadius:3,background:"rgba(16,185,129,.06)"}}>
+          ↗ OPEN IN YOUTUBE
+        </a>
       </div>
     </div>
   );

@@ -8,7 +8,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const r = await axios.get(
-      'https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.json',
+      'https://feodotracker.abuse.ch/downloads/ipblocklist.json',
       { timeout: 10000 }
     );
     const ips = (r.data || []).slice(0, 60).map(e => e.ip_address).filter(Boolean);

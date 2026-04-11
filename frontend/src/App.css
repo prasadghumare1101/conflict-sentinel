@@ -1,4 +1,4 @@
-/* ── Root layout ─────────────────────────────────────────���───────────────── */
+/* ── Root ─────────────────────────────────────────────────────────────────── */
 .app-root {
   min-height: 100vh;
   width: 100vw;
@@ -7,22 +7,25 @@
   background: #000;
 }
 
-/* ── Fullscreen map — offset right so panel never overlaps ──────────────── */
+/* ── Map ──────────────────────────────────────────────────────────────────── */
 .map-fullscreen {
   position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  right: 390px;
+  top: 0; left: 0; bottom: 0; right: 0;
   z-index: 10;
+  transition: right 0.3s ease;
 }
 
-/* ── Right-side Intelligence Platform — always visible, no hide ─────────── */
+/* Desktop: shrink map to make room for panel */
+@media (min-width: 901px) {
+  .map-fullscreen.panel-open {
+    right: 390px;
+  }
+}
+
+/* ── Intel Panel ──────────────────────────────────────────────────────────── */
 .intel-panel {
   position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  top: 0; right: 0; bottom: 0;
   z-index: 2000;
   width: 390px;
   background: rgba(6, 10, 20, 0.98);
@@ -31,9 +34,37 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+}
+.intel-panel--open {
+  transform: translateX(0);
 }
 
-/* ── Panel header ────────────���──────────────────────────────────────────── */
+/* Tablet */
+@media (min-width: 601px) and (max-width: 900px) {
+  .intel-panel { width: 360px; }
+}
+
+/* Mobile: full-width bottom sheet */
+@media (max-width: 600px) {
+  .intel-panel {
+    top: auto;
+    left: 0; right: 0; bottom: 0;
+    width: 100%;
+    height: 82vh;
+    border-left: none;
+    border-top: 1px solid rgba(16,185,129,0.35);
+    border-radius: 16px 16px 0 0;
+    transform: translateY(100%);
+    box-shadow: 0 -8px 40px rgba(0,0,0,0.7);
+  }
+  .intel-panel--open {
+    transform: translateY(0);
+  }
+}
+
+/* ── Panel header ─────────────────────────────────────────────────────────── */
 .intel-panel__header {
   display: flex;
   align-items: center;
@@ -43,11 +74,31 @@
   background: rgba(16,185,129,0.06);
   border-bottom: 1px solid rgba(16,185,129,0.15);
   flex-shrink: 0;
+  position: relative;
+}
+
+/* Drag handle on mobile */
+@media (max-width: 600px) {
+  .intel-panel__header {
+    padding-top: 18px;
+  }
+  .intel-panel__header::before {
+    content: '';
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 4px;
+    background: rgba(16,185,129,0.3);
+    border-radius: 2px;
+  }
 }
 
 .intel-panel__badge {
   font-size: 14px;
   color: #10b981;
+  flex-shrink: 0;
 }
 .intel-panel__title {
   flex: 1;
@@ -58,6 +109,7 @@
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 .intel-panel__agents {
   font-family: monospace;
@@ -65,12 +117,28 @@
   color: #6b7280;
   animation: blink-agent 2s ease-in-out infinite;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .intel-panel__agents[data-active="true"] {
   color: #10b981;
 }
 
-/* ── Panel body (full remaining height, internal scroll) ────────────────── */
+/* Close button inside header (mobile/tablet only) */
+.intel-panel__close {
+  background: none;
+  border: none;
+  color: #4b5563;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.intel-panel__close:hover { color: #10b981; transform: none; box-shadow: none; }
+@media (min-width: 901px) { .intel-panel__close { display: none; } }
+
+/* ── Panel body ───────────────────────────────────────────────────────────── */
 .intel-panel__body {
   flex: 1;
   overflow: hidden;
@@ -78,13 +146,54 @@
   flex-direction: column;
 }
 
-/* ── Animations ───────────────────��─────────────────────────────────────── */
+/* ── Floating toggle button (mobile + tablet only) ────────────────────────── */
+.panel-toggle-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 16px;
+  z-index: 3000;
+  background: rgba(6,10,20,0.92);
+  border: 1px solid rgba(16,185,129,0.55);
+  color: #10b981;
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 10px 18px;
+  border-radius: 24px;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.6), 0 0 12px rgba(16,185,129,0.15);
+  transition: all 0.2s ease;
+}
+.panel-toggle-btn:hover {
+  background: rgba(16,185,129,0.2);
+  box-shadow: 0 6px 28px rgba(16,185,129,0.25);
+}
+@media (min-width: 901px) { .panel-toggle-btn { display: none; } }
+
+/* ── Tap-outside backdrop ─────────────────────────────────────────────────── */
+.panel-backdrop {
+  display: none;
+}
+@media (max-width: 900px) {
+  .panel-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1999;
+    background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(2px);
+  }
+}
+
+/* ── Animations ───────────────────────────────────────────────────────────── */
 @keyframes blink-agent {
   0%,100% { opacity: 1; }
   50%      { opacity: 0.4; }
 }
 
-/* ── Global element fixes ───────────────────────────────────────────────── */
+/* ── Global button hover ──────────────────────────────────────────────────── */
 button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);

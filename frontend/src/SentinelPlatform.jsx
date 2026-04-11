@@ -594,7 +594,7 @@ ${newsCtx}`
             <div style={{padding:"8px 12px"}}>
               <textarea value={signal} onChange={e=>setSignal(e.target.value)}
                 placeholder="Enter region or conflict topic… e.g. 'India Pakistan border tensions', 'Gaza ceasefire update', 'Ukraine frontline Donetsk'"
-                style={{width:"100%",minHeight:110,fontSize:11,color:"#f9fafb",background:"#111827",border:"0.5px solid #374151",borderRadius:6,padding:"10px 12px",resize:"vertical",lineHeight:1.7,boxSizing:"border-box",fontFamily:"monospace"}}/>
+                style={{width:"100%",minHeight:110,fontSize:16,color:"#f9fafb",background:"#111827",border:"0.5px solid #374151",borderRadius:6,padding:"10px 12px",resize:"vertical",lineHeight:1.6,boxSizing:"border-box",fontFamily:"monospace"}}/>
             </div>
           </div>
 

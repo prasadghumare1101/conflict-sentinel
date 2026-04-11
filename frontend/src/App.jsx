@@ -11,11 +11,11 @@ function App() {
   const [analysisRunning, setAnalysisRunning] = useState(false);
   const [panelOpen,       setPanelOpen]       = useState(true);
 
-  // Default: open on desktop, closed on mobile
+  // lg+ (≥1024px): panel always open. Below 1024px: closed by default, user toggles.
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 900px)');
+    const mq = window.matchMedia('(max-width: 1023px)');
     setPanelOpen(!mq.matches);
-    const handler = (e) => setPanelOpen(!e.matches);
+    const handler = (e) => { if (e.matches) setPanelOpen(false); else setPanelOpen(true); };
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
@@ -37,9 +37,9 @@ function App() {
         />
       </div>
 
-      {/* Floating toggle button — visible on mobile/tablet */}
+      {/* Floating toggle button — visible on tablet + mobile only */}
       <button className="panel-toggle-btn" onClick={() => setPanelOpen(v => !v)}>
-        {panelOpen ? '✕' : '⬡ INTEL'}
+        {panelOpen ? '✕ CLOSE' : '⬡ INTEL PANEL'}
       </button>
 
       {/* Tap-outside backdrop on mobile */}

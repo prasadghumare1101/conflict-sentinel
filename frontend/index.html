@@ -6,9 +6,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Sentinel — Intelligence Platform</title>
     <meta name="description" content="Sentinel 5-Agent AI Intelligence Platform — Live tactical map, conflict analysis, and real-time threat assessment." />
+    <style>
+      #root-loader {
+        position: fixed; inset: 0;
+        background: radial-gradient(circle at 60% 50%, #0d1a2e 0%, #030712 100%);
+        display: flex; align-items: center; justify-content: center;
+        font-family: monospace; color: #10b981; font-size: 13px;
+        letter-spacing: 0.15em; z-index: 9999;
+      }
+      #root-loader span { animation: blink 1.2s ease-in-out infinite; }
+      @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    </style>
   </head>
   <body>
+    <div id="root-loader"><span>⬡ SENTINEL INITIALISING…</span></div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      // Remove loader once React mounts
+      document.addEventListener('DOMContentLoaded', function() {
+        var observer = new MutationObserver(function() {
+          var root = document.getElementById('root');
+          if (root && root.children.length > 0) {
+            var loader = document.getElementById('root-loader');
+            if (loader) loader.remove();
+            observer.disconnect();
+          }
+        });
+        observer.observe(document.getElementById('root'), { childList: true });
+      });
+    </script>
   </body>
 </html>

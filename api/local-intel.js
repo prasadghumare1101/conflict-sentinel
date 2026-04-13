@@ -239,10 +239,12 @@ async function runLocalAgents(location, hfToken) {
     }
   };
 
-  // Run all 7 in parallel with a stagger to avoid GDELT rate limits
-  const results = await Promise.all(LOCAL_AGENTS.map((a, i) =>
-    new Promise(resolve => setTimeout(() => fetchAgent(a).then(resolve), i * 300))
-  ));
+  // Run agents sequentially with delay to avoid GDELT rate limits (429)
+  const results = [];
+  for (const agent of LOCAL_AGENTS) {
+    results.push(await fetchAgent(agent));
+    await sleep(800);
+  }
 
   // If HF token available, generate a master synthesis brief
   let synthesis = null;

@@ -1437,7 +1437,12 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
   const [tickerPaused,   setTickerPaused]   = useState(false);
   const [tickerVisible,  setTickerVisible]  = useState(true);
   const [layersVisible,  setLayersVisible]  = useState(true);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
   const [mapMode,        setMapMode]        = useState('2d'); // '2d' | '3d'
+  // Floating map search
+  const [mapSearch,      setMapSearch]      = useState('');
+  const [mapSearchOverlay, setMapSearchOverlay] = useState(null); // {boundary, location}
+  const [mapSearchLoading, setMapSearchLoading] = useState(false);
   const refreshRef = useRef(null);
 
   const toggleLayer = id => setActiveLayers(prev => {
@@ -1546,14 +1551,30 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
 
       <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
         {/* ── Sidebar ─────────────────────────────────────────────────── */}
-        <div style={{ width:340, minWidth:340, display:'flex', flexDirection:'column', background:'rgba(6,10,20,0.97)', borderRight:'1px solid rgba(255,255,255,0.06)', overflow:'hidden' }}>
+        {!sidebarVisible && (
+          <div style={{ width:28, display:'flex', flexDirection:'column', alignItems:'center', background:'rgba(6,10,20,0.97)', borderRight:'1px solid rgba(255,255,255,0.06)', paddingTop:10 }}>
+            <button onClick={()=>setSidebarVisible(true)} title="Show Live Global Intelligence"
+              style={{ background:'transparent', border:'none', color:'#10b981', cursor:'pointer', fontSize:10, writing:'vertical-lr', padding:'6px 4px', letterSpacing:'0.1em' }}>
+              ▶
+            </button>
+          </div>
+        )}
+        <div style={{ width:sidebarVisible?340:0, minWidth:sidebarVisible?340:0, display:'flex', flexDirection:'column', background:'rgba(6,10,20,0.97)', borderRight:'1px solid rgba(255,255,255,0.06)', overflow:'hidden', transition:'width .28s, min-width .28s' }}>
 
           {/* Header */}
           <div style={{ padding:'10px 14px 8px', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ fontSize:8, letterSpacing:'0.2em', color:'#10b981', marginBottom:2 }}>⬡ SENTINEL · TACTICAL COMMAND · WORLDMONITOR</div>
-            <div style={{ fontSize:14, fontWeight:600, color:'#f9fafb' }}>Live Global Intelligence</div>
-            <div style={{ fontSize:8, color:'#4b5563', marginTop:1 }}>
-              {lastUpdate ? `↻ ${lastUpdate.toLocaleTimeString()}` : 'Connecting…'} · Auto 2min
+            <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between' }}>
+              <div>
+                <div style={{ fontSize:8, letterSpacing:'0.2em', color:'#10b981', marginBottom:2 }}>⬡ SENTINEL · TACTICAL COMMAND · WORLDMONITOR</div>
+                <div style={{ fontSize:14, fontWeight:600, color:'#f9fafb' }}>Live Global Intelligence</div>
+                <div style={{ fontSize:8, color:'#4b5563', marginTop:1 }}>
+                  {lastUpdate ? `↻ ${lastUpdate.toLocaleTimeString()}` : 'Connecting…'} · Auto 2min
+                </div>
+              </div>
+              <button onClick={()=>setSidebarVisible(false)} title="Hide panel"
+                style={{ background:'transparent', border:'none', color:'#4b5563', cursor:'pointer', fontSize:14, padding:'0 2px', flexShrink:0, lineHeight:1 }}>
+                ✕
+              </button>
             </div>
           </div>
 
@@ -1794,6 +1815,49 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
               <span style={{ fontSize:8, color:'#6b7280', letterSpacing:'0.12em' }}>▲ SHOW LAYERS</span>
             </div>
           )}
+
+          {/* ── Floating map search bar ── */}
+          <div style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:1100, display:'flex', gap:6, alignItems:'center', background:'rgba(6,10,20,0.92)', border:'1px solid rgba(16,185,129,0.45)', borderRadius:24, padding:'5px 8px 5px 14px', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)', boxShadow:'0 4px 20px rgba(0,0,0,0.5)', minWidth:260, maxWidth:'calc(100% - 40px)' }}>
+            <span style={{ fontSize:10, color:'#10b981', flexShrink:0 }}>🔍</span>
+            <input
+              value={mapSearch}
+              onChange={e=>setMapSearch(e.target.value)}
+              onKeyDown={async e=>{
+                if(e.key==='Enter'&&mapSearch.trim()){
+                  const loc=mapSearch.trim();
+                  setMapSearchLoading(true);
+                  try{
+                    const r=await fetch(`/api/local-intel?action=boundary&location=${encodeURIComponent(loc)}`);
+                    const d=await r.json();
+                    if(d.boundary){setMapSearchOverlay({boundary:d.boundary,location:loc});}
+                  }catch(e){}
+                  setMapSearchLoading(false);
+                }
+              }}
+              placeholder="Search location on map…"
+              style={{ flex:1, background:'transparent', border:'none', outline:'none', color:'#f9fafb', fontSize:11, fontFamily:'monospace', minWidth:140 }}
+            />
+            <button
+              onClick={async()=>{
+                const loc=mapSearch.trim();
+                if(!loc)return;
+                setMapSearchLoading(true);
+                try{
+                  const r=await fetch(`/api/local-intel?action=boundary&location=${encodeURIComponent(loc)}`);
+                  const d=await r.json();
+                  if(d.boundary){setMapSearchOverlay({boundary:d.boundary,location:loc});}
+                }catch(e){}
+                setMapSearchLoading(false);
+              }}
+              disabled={mapSearchLoading||!mapSearch.trim()}
+              style={{ background:'rgba(16,185,129,.15)', border:'0.5px solid rgba(16,185,129,.5)', borderRadius:16, color:'#10b981', fontSize:9, fontFamily:'monospace', fontWeight:700, padding:'4px 12px', cursor:'pointer', flexShrink:0, letterSpacing:'0.08em' }}>
+              {mapSearchLoading?'…':'LOCATE'}
+            </button>
+            {mapSearchOverlay&&(
+              <button onClick={()=>setMapSearchOverlay(null)}
+                style={{ background:'transparent', border:'none', color:'#4b5563', cursor:'pointer', fontSize:11, padding:'0 2px', flexShrink:0 }} title="Clear search">✕</button>
+            )}
+          </div>
 
           {/* Scan overlay on ROI */}
           {predictedRoi && (
@@ -2040,39 +2104,44 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
                 </CircleMarker>
               );
             })}
-            {/* ── Local Intelligence overlay — boundary polygon + location pin ── */}
+            {/* ── Local Intelligence overlay (from panel) ── */}
             {localIntelOverlay?.boundary?.geojson && (
               <GeoJSON
-                key={localIntelOverlay.location}
+                key={`li-${localIntelOverlay.location}`}
                 data={localIntelOverlay.boundary.geojson}
-                style={{
-                  color:       '#10b981',
-                  weight:      2.5,
-                  opacity:     0.9,
-                  fillColor:   '#10b981',
-                  fillOpacity: 0.07,
-                  dashArray:   '6 3',
-                }}
+                style={{ color:'#10b981', weight:2.5, opacity:0.9, fillColor:'#10b981', fillOpacity:0.07, dashArray:'6 3' }}
               />
             )}
             {localIntelOverlay?.boundary?.lat && !localIntelOverlay?.boundary?.geojson && (
-              /* Fallback circle when no polygon available */
-              <Circle
-                center={[localIntelOverlay.boundary.lat, localIntelOverlay.boundary.lng]}
-                radius={25000}
-                pathOptions={{ color:'#10b981', weight:2, fillColor:'#10b981', fillOpacity:0.07, dashArray:'6 3' }}
-              />
+              <Circle center={[localIntelOverlay.boundary.lat, localIntelOverlay.boundary.lng]} radius={25000}
+                pathOptions={{ color:'#10b981', weight:2, fillColor:'#10b981', fillOpacity:0.07, dashArray:'6 3' }} />
             )}
             {localIntelOverlay?.boundary?.lat && (
-              <CircleMarker
-                center={[localIntelOverlay.boundary.lat, localIntelOverlay.boundary.lng]}
-                radius={7}
-                pathOptions={{ color:'#10b981', weight:2, fillColor:'#10b981', fillOpacity:0.9 }}
-              >
+              <CircleMarker center={[localIntelOverlay.boundary.lat, localIntelOverlay.boundary.lng]} radius={7}
+                pathOptions={{ color:'#10b981', weight:2, fillColor:'#10b981', fillOpacity:0.9 }}>
                 <Tooltip permanent direction="top" offset={[0,-10]}>
-                  <span style={{fontFamily:'monospace',fontSize:10,color:'#10b981',fontWeight:700}}>
-                    🛰 {localIntelOverlay.location?.toUpperCase()}
-                  </span>
+                  <span style={{fontFamily:'monospace',fontSize:10,color:'#10b981',fontWeight:700}}>🛰 {localIntelOverlay.location?.toUpperCase()}</span>
+                </Tooltip>
+              </CircleMarker>
+            )}
+
+            {/* ── Map search overlay (from floating search bar) ── */}
+            {mapSearchOverlay?.boundary?.geojson && (
+              <GeoJSON
+                key={`ms-${mapSearchOverlay.location}`}
+                data={mapSearchOverlay.boundary.geojson}
+                style={{ color:'#3b82f6', weight:2.5, opacity:0.9, fillColor:'#3b82f6', fillOpacity:0.08, dashArray:'4 2' }}
+              />
+            )}
+            {mapSearchOverlay?.boundary?.lat && !mapSearchOverlay?.boundary?.geojson && (
+              <Circle center={[mapSearchOverlay.boundary.lat, mapSearchOverlay.boundary.lng]} radius={20000}
+                pathOptions={{ color:'#3b82f6', weight:2, fillColor:'#3b82f6', fillOpacity:0.08, dashArray:'4 2' }} />
+            )}
+            {mapSearchOverlay?.boundary?.lat && (
+              <CircleMarker center={[mapSearchOverlay.boundary.lat, mapSearchOverlay.boundary.lng]} radius={8}
+                pathOptions={{ color:'#3b82f6', weight:2, fillColor:'#3b82f6', fillOpacity:0.9 }}>
+                <Tooltip permanent direction="top" offset={[0,-10]}>
+                  <span style={{fontFamily:'monospace',fontSize:10,color:'#3b82f6',fontWeight:700}}>🔍 {mapSearchOverlay.location?.toUpperCase()}</span>
                 </Tooltip>
               </CircleMarker>
             )}

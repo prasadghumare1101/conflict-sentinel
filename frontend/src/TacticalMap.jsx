@@ -2154,14 +2154,13 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
                 style={{ color:'#f59e0b', weight:2.5, opacity:0.95, fillColor:'#f59e0b', fillOpacity:0.06, dashArray:'8 4' }}
               />
             )}
-            {sarOverlay?.bbox && !sarOverlay?.footprint && (() => {
-              const [w,s,e,n] = sarOverlay.bbox;
-              const lat=(s+n)/2, lng=(w+e)/2;
-              return (
-                <Circle center={[lat,lng]} radius={Math.abs(e-w)*55000}
-                  pathOptions={{ color:'#f59e0b', weight:2, fillColor:'#f59e0b', fillOpacity:0.06, dashArray:'8 4' }} />
-              );
-            })()}
+            {sarOverlay?.bbox && !sarOverlay?.footprint && (
+              <Circle
+                center={[(sarOverlay.bbox[1]+sarOverlay.bbox[3])/2, (sarOverlay.bbox[0]+sarOverlay.bbox[2])/2]}
+                radius={Math.abs(sarOverlay.bbox[2]-sarOverlay.bbox[0])*55000}
+                pathOptions={{ color:'#f59e0b', weight:2, fillColor:'#f59e0b', fillOpacity:0.06, dashArray:'8 4' }}
+              />
+            )}
             {sarOverlay?.bbox && (
               <CircleMarker center={[(sarOverlay.bbox[1]+sarOverlay.bbox[3])/2, (sarOverlay.bbox[0]+sarOverlay.bbox[2])/2]} radius={7}
                 pathOptions={{ color:'#f59e0b', weight:2, fillColor:'#f59e0b', fillOpacity:0.9 }}>

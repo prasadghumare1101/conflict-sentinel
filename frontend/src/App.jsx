@@ -1,8 +1,12 @@
 import React, { useState, useCallback, useEffect, lazy, Suspense } from 'react';
-const HeroBackground = lazy(() => import('./HeroBackground'));
-import SentinelPlatform from './SentinelPlatform';
-import TacticalMap from './TacticalMap';
 import './App.css';
+
+// Lazy-load heavy components that use leaflet, three.js, @react-three/drei.
+// This defers their module evaluation until after React's root is stable,
+// preventing "Cannot access X before initialization" TDZ crashes.
+const HeroBackground = lazy(() => import('./HeroBackground'));
+const TacticalMap    = lazy(() => import('./TacticalMap'));
+const SentinelPlatform = lazy(() => import('./SentinelPlatform'));
 
 function App() {
   const [predictedRoi,      setPredictedRoi]      = useState(null);
@@ -10,8 +14,8 @@ function App() {
   const [discussion,        setDiscussion]        = useState([]);
   const [analysisRunning,   setAnalysisRunning]   = useState(false);
   const [panelOpen,         setPanelOpen]         = useState(true);
-  const [localIntelOverlay, setLocalIntelOverlay] = useState(null); // {boundary, location}
-  const [sarOverlay,        setSarOverlay]        = useState(null); // {bbox, geojson, sceneName}
+  const [localIntelOverlay, setLocalIntelOverlay] = useState(null);
+  const [sarOverlay,        setSarOverlay]        = useState(null);
 
   // lg+ (≥1024px): panel always open. Below 1024px: closed by default, user toggles.
   useEffect(() => {
@@ -35,14 +39,16 @@ function App() {
 
       {/* Map — shrinks when panel is open on desktop */}
       <div className={`map-fullscreen${panelOpen ? ' panel-open' : ''}`}>
-        <TacticalMap
-          predictedRoi={predictedRoi}
-          agentIntel={agentIntel}
-          discussion={discussion}
-          analysisRunning={analysisRunning}
-          localIntelOverlay={localIntelOverlay}
-          sarOverlay={sarOverlay}
-        />
+        <Suspense fallback={<div style={{ width:'100%', height:'100%', background:'#030712' }} />}>
+          <TacticalMap
+            predictedRoi={predictedRoi}
+            agentIntel={agentIntel}
+            discussion={discussion}
+            analysisRunning={analysisRunning}
+            localIntelOverlay={localIntelOverlay}
+            sarOverlay={sarOverlay}
+          />
+        </Suspense>
       </div>
 
       {/* Floating toggle button — visible on tablet + mobile only */}
@@ -64,14 +70,16 @@ function App() {
           <button className="intel-panel__close" onClick={() => setPanelOpen(false)}>✕</button>
         </div>
         <div className="intel-panel__body">
-          <SentinelPlatform
-            setPredictedRoi={setPredictedRoi}
-            setAgentIntel={setAgentIntel}
-            onDiscussionUpdate={onDiscussionUpdate}
-            onAnalysisRunning={onAnalysisRunning}
-            onLocalIntelUpdate={onLocalIntelUpdate}
-            onSarUpdate={onSarUpdate}
-          />
+          <Suspense fallback={<div style={{ padding: 20, color: '#10b981', fontFamily: 'monospace', fontSize: 11 }}>⬡ LOADING PLATFORM…</div>}>
+            <SentinelPlatform
+              setPredictedRoi={setPredictedRoi}
+              setAgentIntel={setAgentIntel}
+              onDiscussionUpdate={onDiscussionUpdate}
+              onAnalysisRunning={onAnalysisRunning}
+              onLocalIntelUpdate={onLocalIntelUpdate}
+              onSarUpdate={onSarUpdate}
+            />
+          </Suspense>
         </div>
       </div>
     </div>

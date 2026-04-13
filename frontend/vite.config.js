@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -11,8 +10,5 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-  },
-  optimizeDeps: {
-    include: ['leaflet', 'react-leaflet', 'three', '@react-three/fiber', '@react-three/drei'],
   },
 })

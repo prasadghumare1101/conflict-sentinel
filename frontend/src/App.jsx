@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import HeroBackground from './HeroBackground';
+import React, { useState, useCallback, useEffect, lazy, Suspense } from 'react';
+const HeroBackground = lazy(() => import('./HeroBackground'));
 import SentinelPlatform from './SentinelPlatform';
 import TacticalMap from './TacticalMap';
 import './App.css';
@@ -29,7 +29,9 @@ function App() {
 
   return (
     <div className="app-root">
-      <HeroBackground />
+      <Suspense fallback={null}>
+        <HeroBackground />
+      </Suspense>
 
       {/* Map — shrinks when panel is open on desktop */}
       <div className={`map-fullscreen${panelOpen ? ' panel-open' : ''}`}>

@@ -2,9 +2,8 @@ import React, { useState, useCallback, useEffect, lazy, Suspense } from 'react';
 import ErrorBoundary from './ErrorBoundary';
 import './App.css';
 
-// Lazy-load all heavy components so their bundled chunks (leaflet, three.js,
-// @react-three/drei) are evaluated AFTER React's root mounts — prevents TDZ.
-const HeroBackground  = lazy(() => import('./HeroBackground'));
+// Lazy-load heavy components. HeroBackground removed — was 880KB three.js/drei
+// chunk causing TDZ crash just for a decorative planet. Replaced with CSS gradient.
 const TacticalMap     = lazy(() => import('./TacticalMap'));
 const SentinelPlatform = lazy(() => import('./SentinelPlatform'));
 
@@ -32,12 +31,6 @@ function App() {
 
   return (
     <div className="app-root">
-      <ErrorBoundary>
-        <Suspense fallback={null}>
-          <HeroBackground />
-        </Suspense>
-      </ErrorBoundary>
-
       <div className={`map-fullscreen${panelOpen ? ' panel-open' : ''}`}>
         <ErrorBoundary>
           <Suspense fallback={<div style={{ width:'100%', height:'100%', background:'#030712' }} />}>

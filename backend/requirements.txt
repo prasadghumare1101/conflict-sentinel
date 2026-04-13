@@ -1,2 +1,6 @@
 Pillow
 ultralytics
+requests
+python-dotenv
+scikit-learn
+numpy

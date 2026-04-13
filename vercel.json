@@ -9,6 +9,7 @@
   "functions": {
     "api/gemini-proxy.js":         { "maxDuration": 60 },
     "api/predict-conflict.js":     { "maxDuration": 60 },
+    "api/local-intel.js":          { "maxDuration": 55 },
     "api/conflict-events.js":      { "maxDuration": 30 },
     "api/conflict-news.js":        { "maxDuration": 20 },
     "api/cyber-threats.js":        { "maxDuration": 20 },

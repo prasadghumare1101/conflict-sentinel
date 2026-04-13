@@ -346,4 +346,155 @@ app.get('/api/internet-disruptions', async (req, res) => {
   }
 });
 
+// ── Local Intelligence — location search + boundary ──────────────────────────
+app.get('/api/local-intel', async (req, res) => {
+  const { action, location, timespan } = req.query;
+  if (!location) return res.status(400).json({ error: 'location required' });
+
+  try {
+    if (!action || action === 'search' || action === 'boundary') {
+      // Nominatim boundary lookup
+      const nomUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&polygon_geojson=1&addressdetails=1&limit=5`;
+      let boundary = null;
+      try {
+        const nomResp = await axios.get(nomUrl, {
+          timeout: 8000,
+          headers: { 'User-Agent': 'Sentinel-Intelligence-Platform/1.0' }
+        });
+        const results = nomResp.data || [];
+        if (results.length) {
+          const best = results[0];
+          boundary = {
+            display_name: best.display_name,
+            lat:          parseFloat(best.lat),
+            lng:          parseFloat(best.lon),
+            type:         best.type,
+            address:      best.address || {},
+            geojson:      best.geojson || null,
+            boundingbox:  best.boundingbox ? best.boundingbox.map(Number) : null,
+          };
+        }
+      } catch (e) { console.warn('[local-intel] Nominatim error:', e.message); }
+
+      if (action === 'boundary') return res.json({ location, boundary });
+
+      // Also fetch local news from GDELT
+      let articles = [];
+      const queries = [`"${location}" conflict military attack`, `${location} troops tension`, `${location} violence crisis`];
+      for (const q of queries) {
+        try {
+          const gUrl   = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(q)}+sourcelang:eng&mode=artlist&maxrecords=20&format=json&timespan=${timespan||'7d'}&sort=DateDesc`;
+          const gResp  = await axios.get(gUrl, { timeout: 10000 });
+          articles     = (gResp.data?.articles || []).map(a => ({
+            title: a.title, url: a.url, source: a.domain,
+            date: a.seendate ? `${String(a.seendate).slice(0,4)}-${String(a.seendate).slice(4,6)}-${String(a.seendate).slice(6,8)}` : null,
+          }));
+          if (articles.length >= 3) break;
+          await new Promise(r => setTimeout(r, 700));
+        } catch (e) { await new Promise(r => setTimeout(r, 700)); }
+      }
+
+      return res.json({ location, boundary, articles });
+    }
+
+    if (action === 'news') {
+      // GDELT local news only
+      const q    = `"${location}" conflict military`;
+      const gUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(q)}+sourcelang:eng&mode=artlist&maxrecords=25&format=json&timespan=${timespan||'7d'}&sort=DateDesc`;
+      const r    = await axios.get(gUrl, { timeout: 10000 });
+      const articles = (r.data?.articles || []).map(a => ({
+        title: a.title, url: a.url, source: a.domain,
+        date: a.seendate ? `${String(a.seendate).slice(0,4)}-${String(a.seendate).slice(4,6)}-${String(a.seendate).slice(6,8)}` : null,
+      }));
+      return res.json({ location, articles });
+    }
+
+    res.status(400).json({ error: `Unknown action: ${action}` });
+  } catch (err) {
+    console.error('[local-intel]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Local Intelligence — AI prediction via Python agent ──────────────────────
+app.post('/api/local-intel/predict', (req, res) => {
+  const { location } = req.body || {};
+  if (!location) return res.status(400).json({ error: 'location required' });
+
+  const python = spawn('py', ['-3.11', 'agent/intelligence_agent.py', 'predict', location], {
+    cwd: __dirname,
+  });
+
+  let out = '', err = '';
+  // 90-second timeout for the prediction script
+  const killTimer = setTimeout(() => {
+    python.kill();
+    if (!responded) {
+      responded = true;
+      res.status(503).json({ error: 'Prediction timeout — Python agent took >90s' });
+    }
+  }, 90000);
+
+  let responded = false;
+  python.stdout.on('data', d => { out += d.toString(); });
+  python.stderr.on('data', d => { err += d.toString(); });
+  python.on('close', code => {
+    clearTimeout(killTimer);
+    if (responded) return;
+    responded = true;
+    if (code !== 0) return res.status(500).json({ error: 'Agent error', stderr: err.slice(-400) });
+    const stripped = out.replace(/```(?:json)?\s*/g,'').replace(/```/g,'');
+    const lb = stripped.lastIndexOf('{'), rb = stripped.lastIndexOf('}');
+    if (lb !== -1 && rb > lb) {
+      try { return res.json(JSON.parse(stripped.slice(lb, rb + 1))); } catch (e) { /* fall through */ }
+    }
+    res.status(500).json({ error: 'No valid JSON in agent output', raw: out.slice(-300) });
+  });
+});
+
+// ── Local Intelligence — prediction history ───────────────────────────────────
+app.get('/api/local-intel/history', (req, res) => {
+  const { location, limit } = req.query;
+  if (!location) return res.status(400).json({ error: 'location required' });
+
+  const python = spawn('py', ['-3.11', 'agent/intelligence_agent.py', 'history', location, String(limit||20)], {
+    cwd: __dirname,
+  });
+
+  let out = '', responded = false;
+  const killTimer = setTimeout(() => {
+    python.kill();
+    if (!responded) { responded = true; res.json({ history: [] }); }
+  }, 20000);
+
+  python.stdout.on('data', d => { out += d.toString(); });
+  python.on('close', () => {
+    clearTimeout(killTimer);
+    if (responded) return;
+    responded = true;
+    try { res.json({ history: JSON.parse(out) }); } catch { res.json({ history: [] }); }
+  });
+});
+
+// ── Local Intelligence — agent status ────────────────────────────────────────
+app.get('/api/local-intel/status', (req, res) => {
+  const python = spawn('py', ['-3.11', 'agent/intelligence_agent.py', 'status'], {
+    cwd: __dirname,
+  });
+
+  let out = '', responded = false;
+  const killTimer = setTimeout(() => {
+    python.kill();
+    if (!responded) { responded = true; res.json({ intelligence_level: 1, total_predictions: 0, rl_stats: {} }); }
+  }, 15000);
+
+  python.stdout.on('data', d => { out += d.toString(); });
+  python.on('close', () => {
+    clearTimeout(killTimer);
+    if (responded) return;
+    responded = true;
+    try { res.json(JSON.parse(out)); } catch { res.json({ intelligence_level: 1 }); }
+  });
+});
+
 app.listen(port, () => console.log(`Sentinel backend listening at http://localhost:${port}`));

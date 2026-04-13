@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { MapContainer, TileLayer, Circle, CircleMarker, Popup, useMap, Tooltip, Marker } from 'react-leaflet';
+import { MapContainer, TileLayer, Circle, CircleMarker, Popup, useMap, Tooltip, Marker, GeoJSON } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -1422,7 +1422,7 @@ function AgentDiscussionOverlay({ discussion, agentIntel, analysisRunning }) {
 }
 
 /* ─── Main component ─────────────────────────────────────────────────────── */
-export default function TacticalMap({ predictedRoi, agentIntel, discussion, analysisRunning }) {
+export default function TacticalMap({ predictedRoi, agentIntel, discussion, analysisRunning, localIntelOverlay }) {
   const [conflictEvents, setConflictEvents] = useState([]);
   const [quakes,         setQuakes]         = useState([]);
   const [naturalEvts,    setNaturalEvts]    = useState([]);
@@ -2040,6 +2040,42 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
                 </CircleMarker>
               );
             })}
+            {/* ── Local Intelligence overlay — boundary polygon + location pin ── */}
+            {localIntelOverlay?.boundary?.geojson && (
+              <GeoJSON
+                key={localIntelOverlay.location}
+                data={localIntelOverlay.boundary.geojson}
+                style={{
+                  color:       '#10b981',
+                  weight:      2.5,
+                  opacity:     0.9,
+                  fillColor:   '#10b981',
+                  fillOpacity: 0.07,
+                  dashArray:   '6 3',
+                }}
+              />
+            )}
+            {localIntelOverlay?.boundary?.lat && !localIntelOverlay?.boundary?.geojson && (
+              /* Fallback circle when no polygon available */
+              <Circle
+                center={[localIntelOverlay.boundary.lat, localIntelOverlay.boundary.lng]}
+                radius={25000}
+                pathOptions={{ color:'#10b981', weight:2, fillColor:'#10b981', fillOpacity:0.07, dashArray:'6 3' }}
+              />
+            )}
+            {localIntelOverlay?.boundary?.lat && (
+              <CircleMarker
+                center={[localIntelOverlay.boundary.lat, localIntelOverlay.boundary.lng]}
+                radius={7}
+                pathOptions={{ color:'#10b981', weight:2, fillColor:'#10b981', fillOpacity:0.9 }}
+              >
+                <Tooltip permanent direction="top" offset={[0,-10]}>
+                  <span style={{fontFamily:'monospace',fontSize:10,color:'#10b981',fontWeight:700}}>
+                    🛰 {localIntelOverlay.location?.toUpperCase()}
+                  </span>
+                </Tooltip>
+              </CircleMarker>
+            )}
           </MapContainer>
           </div>{/* 3d-transform inner */}
           </div>{/* 3d-perspective outer */}

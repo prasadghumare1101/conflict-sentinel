@@ -5,11 +5,12 @@ import TacticalMap from './TacticalMap';
 import './App.css';
 
 function App() {
-  const [predictedRoi,    setPredictedRoi]    = useState(null);
-  const [agentIntel,      setAgentIntel]      = useState(null);
-  const [discussion,      setDiscussion]      = useState([]);
-  const [analysisRunning, setAnalysisRunning] = useState(false);
-  const [panelOpen,       setPanelOpen]       = useState(true);
+  const [predictedRoi,      setPredictedRoi]      = useState(null);
+  const [agentIntel,        setAgentIntel]        = useState(null);
+  const [discussion,        setDiscussion]        = useState([]);
+  const [analysisRunning,   setAnalysisRunning]   = useState(false);
+  const [panelOpen,         setPanelOpen]         = useState(true);
+  const [localIntelOverlay, setLocalIntelOverlay] = useState(null); // {boundary, location}
 
   // lg+ (≥1024px): panel always open. Below 1024px: closed by default, user toggles.
   useEffect(() => {
@@ -20,8 +21,9 @@ function App() {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  const onDiscussionUpdate = useCallback((entries) => setDiscussion(entries), []);
-  const onAnalysisRunning  = useCallback((running)  => setAnalysisRunning(running), []);
+  const onDiscussionUpdate  = useCallback((entries) => setDiscussion(entries), []);
+  const onAnalysisRunning   = useCallback((running)  => setAnalysisRunning(running), []);
+  const onLocalIntelUpdate  = useCallback((overlay)  => setLocalIntelOverlay(overlay), []);
 
   return (
     <div className="app-root">
@@ -34,6 +36,7 @@ function App() {
           agentIntel={agentIntel}
           discussion={discussion}
           analysisRunning={analysisRunning}
+          localIntelOverlay={localIntelOverlay}
         />
       </div>
 
@@ -61,6 +64,7 @@ function App() {
             setAgentIntel={setAgentIntel}
             onDiscussionUpdate={onDiscussionUpdate}
             onAnalysisRunning={onAnalysisRunning}
+            onLocalIntelUpdate={onLocalIntelUpdate}
           />
         </div>
       </div>

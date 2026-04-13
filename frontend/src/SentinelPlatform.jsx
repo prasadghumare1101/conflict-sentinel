@@ -324,7 +324,7 @@ function LiveFootagePanel(){
 }
 
 /* ─── Main Platform ─────────────────────────────────────────────────────── */
-export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscussionUpdate,onAnalysisRunning}){
+export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscussionUpdate,onAnalysisRunning,onLocalIntelUpdate}){
   const [signal,         setSignal]         = useState("");
   const [running,        setRunning]        = useState(false);
   const [agenticRunning, setAgenticRunning] = useState(false);
@@ -576,13 +576,92 @@ ${newsCtx}`
 
   useEffect(()=>()=>clearInterval(timerRef.current),[]);
 
-  const [activeView, setActiveView] = useState('agents'); // 'agents' | 'news' | 'footage'
+  const [activeView, setActiveView] = useState('agents'); // 'agents' | 'news' | 'footage' | 'localintel'
 
   const VIEWS = [
-    { id:'agents',  label:'⬡ AGENTS' },
-    { id:'news',    label:'📡 NEWS' },
-    { id:'footage', label:'📺 FOOTAGE' },
+    { id:'agents',     label:'⬡ AGENTS' },
+    { id:'news',       label:'📡 NEWS' },
+    { id:'footage',    label:'📺 FOOTAGE' },
+    { id:'localintel', label:'🛰 LOCAL' },
   ];
+
+  /* ── Local Intelligence state ── */
+  const [liLocation,   setLiLocation]   = useState('');
+  const [liInput,      setLiInput]      = useState('');
+  const [liBoundary,   setLiBoundary]   = useState(null);
+  const [liArticles,   setLiArticles]   = useState([]);
+  const [liPrediction, setLiPrediction] = useState(null);
+  const [liLoading,    setLiLoading]    = useState(false);
+  const [liPredLoading,setLiPredLoading]= useState(false);
+  const [liError,      setLiError]      = useState(null);
+  const [liHistory,    setLiHistory]    = useState([]);
+  const [liAgentStatus,setLiAgentStatus]= useState(null);
+  const liTimerRef   = useRef(null);
+  const [liAgents,     setLiAgents]     = useState([]);   // 7-agent results
+  const [liSynthesis,  setLiSynthesis]  = useState(null); // combined brief
+  const [liAgentsLoading, setLiAgentsLoading] = useState(false);
+
+  // Fetch Local Intel (boundary + news) — Vercel serverless
+  const fetchLocalIntel = useCallback(async (loc) => {
+    if (!loc) return;
+    setLiLoading(true); setLiError(null);
+    try {
+      const r = await fetch(`/api/local-intel?action=search&location=${encodeURIComponent(loc)}&timespan=7d`);
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      setLiBoundary(d.boundary || null);
+      setLiArticles(d.articles || []);
+      setLiLocation(loc);
+      if (onLocalIntelUpdate) onLocalIntelUpdate({ boundary: d.boundary, location: loc });
+      // Kick off 7-agent run in parallel (non-blocking for boundary/news)
+      fetchLiAgents(loc);
+    } catch(e) {
+      setLiError(e.message);
+    } finally {
+      setLiLoading(false);
+    }
+  }, [onLocalIntelUpdate, fetchLiAgents]);
+
+  // Fetch all 7 local intel agents
+  const fetchLiAgents = useCallback(async (loc) => {
+    if (!loc) return;
+    setLiAgentsLoading(true);
+    try {
+      const r = await fetch(`/api/local-intel?action=agents&location=${encodeURIComponent(loc)}`);
+      const d = await r.json();
+      if (d.agents) setLiAgents(d.agents);
+      if (d.synthesis) setLiSynthesis(d.synthesis);
+    } catch(e) {
+      // silently ignore
+    } finally {
+      setLiAgentsLoading(false);
+    }
+  }, []);
+
+  // Fetch AI prediction — calls Vercel local-intel endpoint (uses HF LLM)
+  const fetchLiPrediction = useCallback(async (loc) => {
+    if (!loc) return;
+    setLiPredLoading(true);
+    try {
+      // Use the same Vercel endpoint — it includes prediction in the search response
+      const r = await fetch(`/api/local-intel?action=search&location=${encodeURIComponent(loc)}&timespan=3d`);
+      const d = await r.json();
+      if (d.prediction) setLiPrediction(d.prediction);
+    } catch(e) {
+      // silently ignore prediction errors
+    } finally {
+      setLiPredLoading(false);
+    }
+  }, []);
+
+  // Auto-refresh prediction every 2 minutes when Local Intel tab is active
+  useEffect(() => {
+    if (activeView === 'localintel' && liLocation) {
+      fetchLiPrediction(liLocation);
+      liTimerRef.current = setInterval(() => fetchLiPrediction(liLocation), 120000);
+    }
+    return () => clearInterval(liTimerRef.current);
+  }, [activeView, liLocation, fetchLiPrediction]);
 
   return (
     <div style={{fontFamily:"monospace",color:"#f9fafb",background:"#060a14",display:"flex",flexDirection:"column",height:"100%"}}>
@@ -851,6 +930,285 @@ ${newsCtx}`
       {activeView==='footage'&&(
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
           <LiveFootagePanel/>
+        </div>
+      )}
+
+      {/* ── LOCAL INTELLIGENCE VIEW ── */}
+      {activeView==='localintel'&&(
+        <div className="sp-scroll" style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:10,padding:"12px 12px 16px"}}>
+
+          {/* Search bar */}
+          <div style={{background:"#0d1320",border:"0.5px solid #1f2937",borderRadius:8,overflow:"hidden"}}>
+            <div style={{padding:"7px 12px",borderBottom:"0.5px solid #1f2937",background:"rgba(16,185,129,.04)",fontSize:8,fontFamily:"monospace",letterSpacing:"0.14em",color:"#6b7280"}}>
+              🛰 LOCAL INTELLIGENCE — LOCATION SEARCH
+            </div>
+            <div style={{padding:"10px 12px",display:"flex",gap:8,alignItems:"center"}}>
+              <input
+                value={liInput}
+                onChange={e=>setLiInput(e.target.value)}
+                onKeyDown={e=>{if(e.key==='Enter'&&liInput.trim()){fetchLocalIntel(liInput.trim());fetchLiPrediction(liInput.trim());}}}
+                placeholder="Enter location: Kashmir, Donetsk, Gaza, Manipur…"
+                style={{flex:1,background:"#0a0f1a",border:"0.5px solid #374151",borderRadius:5,padding:"8px 10px",color:"#f9fafb",fontSize:12,fontFamily:"monospace",outline:"none",minWidth:0}}
+              />
+              <button
+                onClick={()=>{if(liInput.trim()){fetchLocalIntel(liInput.trim());fetchLiPrediction(liInput.trim());}}}
+                disabled={liLoading||!liInput.trim()}
+                style={{padding:"8px 14px",background:"rgba(16,185,129,.12)",border:"0.5px solid rgba(16,185,129,.45)",borderRadius:5,color:"#10b981",fontSize:9,fontFamily:"monospace",fontWeight:700,cursor:"pointer",letterSpacing:"0.1em",flexShrink:0}}>
+                {liLoading?"…":"SEARCH"}
+              </button>
+            </div>
+            {/* Quick picks */}
+            <div style={{padding:"0 12px 10px",display:"flex",flexWrap:"wrap",gap:5}}>
+              {["Kashmir","Gaza Strip","Donetsk","Kharkiv","Rafah","Manipur","Khyber Pakhtunkhwa","Zaporizhzhia","Darfur"].map(loc=>(
+                <button key={loc} onClick={()=>{setLiInput(loc);fetchLocalIntel(loc);fetchLiPrediction(loc);}}
+                  style={{fontSize:8,padding:"3px 9px",border:"0.5px solid #374151",borderRadius:4,background:"#111827",color:"#9ca3af",cursor:"pointer",fontFamily:"monospace"}}>
+                  {loc}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Error banner */}
+          {liError&&(
+            <div style={{background:"rgba(239,68,68,.08)",border:"0.5px solid rgba(239,68,68,.3)",borderRadius:6,padding:"8px 12px",fontSize:10,color:"#ef4444",fontFamily:"monospace"}}>
+              ⚠ {liError}
+            </div>
+          )}
+
+          {/* Location found — boundary info */}
+          {liBoundary&&(
+            <div style={{background:"#0d1320",border:"0.5px solid rgba(16,185,129,.2)",borderRadius:8,padding:"10px 12px"}}>
+              <div style={{fontSize:8,color:"#6b7280",fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:5}}>📍 LOCATION RESOLVED</div>
+              <div style={{fontSize:12,color:"#10b981",fontFamily:"monospace",fontWeight:600,marginBottom:3}}>{liLocation.toUpperCase()}</div>
+              <div style={{fontSize:9,color:"#9ca3af",lineHeight:1.6,marginBottom:4}}>{liBoundary.display_name}</div>
+              <div style={{display:"flex",gap:12,fontSize:8,color:"#4b5563",fontFamily:"monospace"}}>
+                <span>LAT {liBoundary.lat?.toFixed(4)}</span>
+                <span>LNG {liBoundary.lng?.toFixed(4)}</span>
+                <span>TYPE {(liBoundary.type||'').toUpperCase()}</span>
+              </div>
+              {liBoundary.geojson&&(
+                <div style={{marginTop:6,fontSize:8,color:"#10b981",fontFamily:"monospace"}}>
+                  ◉ BOUNDARY POLYGON OVERLAID ON MAP
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Prediction card */}
+          {(liPrediction||liPredLoading)&&(
+            <div style={{background:"#0d1320",border:`0.5px solid ${liPredLoading?"#f59e0b33":liPrediction?.risk_level==="CRITICAL"?"rgba(239,68,68,.35)":liPrediction?.risk_level==="HIGH"?"rgba(245,158,11,.35)":"rgba(16,185,129,.25)"}`,borderRadius:8,overflow:"hidden",position:"relative"}}>
+              {liPredLoading&&<div style={{position:"absolute",top:0,left:0,right:0,height:2,background:"#f59e0b",animation:"pulse-bar 1.5s ease-in-out infinite"}}/>}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 12px",borderBottom:"0.5px solid #1f2937",background:"rgba(16,185,129,.04)"}}>
+                <div style={{fontSize:8,fontFamily:"monospace",letterSpacing:"0.14em",color:"#6b7280"}}>
+                  ⬡ AI PREDICTION ENGINE {liPredLoading?"· UPDATING…":""}
+                </div>
+                {liPrediction&&(
+                  <span style={{fontSize:8,color:"#4b5563",fontFamily:"monospace"}}>
+                    {liPrediction.source==="llm"?"🤖 LLM":"📊 RULE"} · {liPrediction.articles_analyzed||0} ARTICLES
+                  </span>
+                )}
+              </div>
+              {liPrediction&&!liPredLoading&&(
+                <div style={{padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                  {/* Probability bar */}
+                  <div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <span style={{fontSize:10,color:"#9ca3af"}}>Activity Probability (next {liPrediction.timeframe_minutes}min)</span>
+                      <span style={{fontSize:14,fontWeight:700,color:liPrediction.risk_level==="CRITICAL"?"#ef4444":liPrediction.risk_level==="HIGH"?"#f59e0b":liPrediction.risk_level==="MODERATE"?"#3b82f6":"#10b981",fontFamily:"monospace"}}>
+                        {Math.round(liPrediction.activity_probability*100)}%
+                      </span>
+                    </div>
+                    <div style={{height:6,background:"#1f2937",borderRadius:3,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${Math.round(liPrediction.activity_probability*100)}%`,background:liPrediction.risk_level==="CRITICAL"?"#ef4444":liPrediction.risk_level==="HIGH"?"#f59e0b":"#10b981",transition:"width .5s ease",borderRadius:3}}/>
+                    </div>
+                  </div>
+                  {/* Risk + direction + confidence row */}
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:9,padding:"2px 8px",borderRadius:3,fontFamily:"monospace",fontWeight:600,
+                      background:liPrediction.risk_level==="CRITICAL"?"rgba(239,68,68,.12)":liPrediction.risk_level==="HIGH"?"rgba(245,158,11,.12)":liPrediction.risk_level==="MODERATE"?"rgba(59,130,246,.12)":"rgba(16,185,129,.12)",
+                      color:liPrediction.risk_level==="CRITICAL"?"#ef4444":liPrediction.risk_level==="HIGH"?"#f59e0b":liPrediction.risk_level==="MODERATE"?"#3b82f6":"#10b981",
+                      border:`0.5px solid ${liPrediction.risk_level==="CRITICAL"?"rgba(239,68,68,.3)":liPrediction.risk_level==="HIGH"?"rgba(245,158,11,.3)":liPrediction.risk_level==="MODERATE"?"rgba(59,130,246,.3)":"rgba(16,185,129,.3)"}`}}>
+                      {liPrediction.risk_level}
+                    </span>
+                    <span style={{fontSize:9,padding:"2px 8px",borderRadius:3,background:"rgba(59,130,246,.08)",color:"#60a5fa",border:"0.5px solid rgba(59,130,246,.25)",fontFamily:"monospace"}}>
+                      ↗ {liPrediction.predicted_direction}
+                    </span>
+                    <span style={{fontSize:9,padding:"2px 8px",borderRadius:3,background:"#111827",color:"#6b7280",border:"0.5px solid #1f2937",fontFamily:"monospace"}}>
+                      CONF {Math.round(liPrediction.confidence*100)}%
+                    </span>
+                  </div>
+                  {/* Hotspot areas */}
+                  {liPrediction.hotspot_areas?.length>0&&(
+                    <div>
+                      <div style={{fontSize:8,color:"#6b7280",fontFamily:"monospace",letterSpacing:"0.1em",marginBottom:4}}>PREDICTED HOTSPOT AREAS</div>
+                      {liPrediction.hotspot_areas.map((h,i)=>(
+                        <div key={i} style={{fontSize:10,color:"#d1d5db",padding:"3px 0",borderLeft:"2px solid #f59e0b",paddingLeft:8,marginBottom:3,lineHeight:1.4}}>{h}</div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Reasoning */}
+                  {liPrediction.reasoning&&(
+                    <div style={{fontSize:10,color:"#9ca3af",lineHeight:1.6,borderTop:"0.5px solid #1f2937",paddingTop:8,fontStyle:"italic"}}>
+                      {liPrediction.reasoning}
+                    </div>
+                  )}
+                  {/* Movement types */}
+                  {liPrediction.movement_types?.length>0&&(
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                      {liPrediction.movement_types.map((m,i)=>(
+                        <span key={i} style={{fontSize:8,padding:"2px 7px",borderRadius:3,background:"rgba(239,68,68,.08)",color:"#fca5a5",border:"0.5px solid rgba(239,68,68,.2)",fontFamily:"monospace"}}>
+                          {m==="vehicle"?"🚛 VEHICLE":m==="troops"?"👥 TROOPS":m==="naval"?"⚓ NAVAL":m==="drone"?"🛸 DRONE":m==="construct"?"🏗 CONSTRUCTION":"⚡ ACTIVITY"}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Agent intelligence level */}
+                  <div style={{borderTop:"0.5px solid #1f2937",paddingTop:8}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <span style={{fontSize:8,color:"#6b7280",fontFamily:"monospace",letterSpacing:"0.1em"}}>AGENT INTELLIGENCE LEVEL</span>
+                      <span style={{fontSize:10,color:"#10b981",fontFamily:"monospace",fontWeight:700}}>LVL {liPrediction.intelligence_level||1}</span>
+                    </div>
+                    <div style={{height:4,background:"#1f2937",borderRadius:2,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${Math.min(100,liPrediction.intelligence_level||1)}%`,background:"linear-gradient(90deg,#10b981,#3b82f6)",borderRadius:2}}/>
+                    </div>
+                    <div style={{fontSize:8,color:"#374151",fontFamily:"monospace",marginTop:4}}>
+                      AUTO-REFRESHES EVERY 2 MIN · {liPrediction.timestamp?new Date(liPrediction.timestamp).toLocaleTimeString("en-GB"):""}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── 7 Local Intelligence Agents ── */}
+          {(liAgents.length>0||liAgentsLoading)&&(
+            <div style={{background:"#0d1320",border:"0.5px solid #1f2937",borderRadius:8,overflow:"hidden"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 12px",borderBottom:"0.5px solid #1f2937",background:"rgba(16,185,129,.04)"}}>
+                <span style={{fontSize:8,fontFamily:"monospace",letterSpacing:"0.14em",color:"#10b981"}}>
+                  ⬡ 7-AGENT LOCAL INTELLIGENCE BOARD
+                </span>
+                <span style={{fontSize:8,color:"#4b5563",fontFamily:"monospace"}}>
+                  {liAgentsLoading?"PROCESSING…":`${liAgents.length} AGENTS ACTIVE`}
+                </span>
+              </div>
+              {/* Combined synthesis */}
+              {liSynthesis&&(
+                <div style={{padding:"9px 12px",borderBottom:"0.5px solid #1f2937",background:"rgba(16,185,129,.03)"}}>
+                  <div style={{fontSize:8,color:"#6b7280",fontFamily:"monospace",letterSpacing:"0.1em",marginBottom:4}}>⬡ COMBINED SYNTHESIS</div>
+                  <div style={{fontSize:10,color:"#d1d5db",lineHeight:1.6,fontStyle:"italic"}}>{liSynthesis}</div>
+                </div>
+              )}
+              {/* Agent cards */}
+              <div style={{padding:"8px 12px",display:"flex",flexDirection:"column",gap:6}}>
+                {liAgentsLoading&&liAgents.length===0&&(
+                  <div style={{textAlign:"center",padding:"16px 0",fontSize:10,color:"#4b5563",fontFamily:"monospace"}}>
+                    <span style={{display:"inline-block",animation:"pulse-bar 1.5s ease-in-out infinite"}}>Running 7 agents in parallel…</span>
+                  </div>
+                )}
+                {liAgents.map((agent,i)=>(
+                  <div key={agent.id} style={{background:"#111827",border:`0.5px solid ${agent.status==="done"?`${agent.color}28`:"#1f2937"}`,borderRadius:6,padding:"8px 10px",position:"relative",overflow:"hidden"}}>
+                    {agent.status==="done"&&<div style={{position:"absolute",top:0,left:0,height:2,width:"100%",background:agent.color,opacity:0.5}}/>}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                      <div style={{display:"flex",gap:8,alignItems:"flex-start",minWidth:0}}>
+                        <span style={{fontSize:14,flexShrink:0}}>{agent.icon}</span>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:11,fontWeight:600,color:"#f9fafb",fontFamily:"monospace",letterSpacing:"0.02em",marginBottom:2}}>{agent.label}</div>
+                          <div style={{fontSize:9,color:"#6b7280",marginBottom:5}}>{agent.desc}</div>
+                          <div style={{fontSize:10,color:"#9ca3af",lineHeight:1.5}}>{agent.brief}</div>
+                        </div>
+                      </div>
+                      <div style={{flexShrink:0,textAlign:"right"}}>
+                        <span style={{fontSize:8,padding:"2px 7px",borderRadius:3,fontFamily:"monospace",fontWeight:600,
+                          background:agent.risk==="CRITICAL"?"rgba(239,68,68,.12)":agent.risk==="HIGH"?"rgba(245,158,11,.12)":agent.risk==="MODERATE"?"rgba(59,130,246,.12)":"rgba(16,185,129,.12)",
+                          color:agent.risk==="CRITICAL"?"#ef4444":agent.risk==="HIGH"?"#f59e0b":agent.risk==="MODERATE"?"#3b82f6":"#10b981",
+                          border:`0.5px solid ${agent.risk==="CRITICAL"?"rgba(239,68,68,.3)":agent.risk==="HIGH"?"rgba(245,158,11,.3)":agent.risk==="MODERATE"?"rgba(59,130,246,.3)":"rgba(16,185,129,.3)"}`}}>
+                          {agent.risk||"LOW"}
+                        </span>
+                        {agent.articles?.length>0&&(
+                          <div style={{fontSize:8,color:"#4b5563",fontFamily:"monospace",marginTop:3}}>{agent.articles.length} SRC</div>
+                        )}
+                      </div>
+                    </div>
+                    {/* Top article links */}
+                    {agent.articles?.slice(0,2).map((a,j)=>(
+                      <div key={j} onClick={()=>{setSignal(prev=>prev?prev+"\n\n"+a.title:a.title);setActiveView('agents');}}
+                        style={{marginTop:5,fontSize:9,color:agent.color,cursor:"pointer",borderLeft:`2px solid ${agent.color}`,paddingLeft:6,lineHeight:1.4,opacity:.8}}
+                        onMouseEnter={e=>e.currentTarget.style.opacity="1"}
+                        onMouseLeave={e=>e.currentTarget.style.opacity="0.8"}>
+                        {a.title?.slice(0,80)}{a.title?.length>80?"…":""}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Local news feed */}
+          {liLocation&&(
+            <div style={{background:"#0d1320",border:"0.5px solid #1f2937",borderRadius:8,overflow:"hidden"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 12px",borderBottom:"0.5px solid #1f2937",background:"rgba(16,185,129,.04)"}}>
+                <span style={{fontSize:8,fontFamily:"monospace",letterSpacing:"0.14em",color:"#10b981"}}>
+                  📡 LOCAL NEWS — {liArticles.length} ARTICLES — {liLocation.toUpperCase()}
+                </span>
+                <button
+                  onClick={()=>fetchLocalIntel(liLocation)}
+                  disabled={liLoading}
+                  style={{fontSize:8,fontFamily:"monospace",padding:"3px 8px",border:"0.5px solid rgba(16,185,129,.35)",borderRadius:4,background:"rgba(16,185,129,.07)",color:"#10b981",cursor:"pointer"}}>
+                  {liLoading?"…":"↻ REFRESH"}
+                </button>
+              </div>
+              <div style={{padding:"8px 12px",display:"flex",flexDirection:"column",gap:5,maxHeight:340,overflowY:"auto"}}>
+                {liLoading&&liArticles.length===0&&(
+                  <div style={{textAlign:"center",padding:"20px 0",fontSize:10,color:"#4b5563",fontFamily:"monospace"}}>Fetching local intelligence…</div>
+                )}
+                {liArticles.slice(0,20).map((a,i)=>(
+                  <div key={i}
+                    onClick={()=>{setSignal(prev=>prev?prev+"\n\n"+a.title:a.title);setActiveView('agents');}}
+                    style={{background:"rgba(255,255,255,.02)",border:"0.5px solid rgba(16,185,129,.1)",borderRadius:5,padding:"7px 9px",cursor:"pointer",transition:"border-color .15s"}}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(16,185,129,.35)"}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(16,185,129,.1)"}>
+                    <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:3}}>
+                      <span style={{fontSize:8,fontFamily:"monospace",color:"#60a5fa",letterSpacing:"0.06em",fontWeight:600}}>{a.source||"NEWS"}</span>
+                      <span style={{fontSize:8,color:"#4b5563",marginLeft:"auto",fontFamily:"monospace"}}>{a.date||""}</span>
+                    </div>
+                    <div style={{fontSize:11,color:"#d1d5db",lineHeight:1.5}}>{a.title}</div>
+                    <div style={{marginTop:3,fontSize:8,color:"#374151",fontFamily:"monospace"}}>↗ inject into agent analysis</div>
+                  </div>
+                ))}
+                {!liLoading&&liArticles.length===0&&liLocation&&(
+                  <div style={{textAlign:"center",padding:"20px 0",fontSize:10,color:"#4b5563",fontFamily:"monospace"}}>
+                    No local articles found. GDELT may not cover this location at this timespan.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Refresh intelligence button */}
+          {liLocation&&(
+            <button
+              onClick={()=>{fetchLocalIntel(liLocation);fetchLiPrediction(liLocation);fetchLiAgents(liLocation);}}
+              disabled={liLoading||liPredLoading||liAgentsLoading}
+              style={{padding:"10px 16px",background:"rgba(16,185,129,.1)",border:"0.5px solid rgba(16,185,129,.4)",borderRadius:6,color:"#10b981",fontSize:10,fontFamily:"monospace",fontWeight:700,cursor:"pointer",letterSpacing:"0.1em",width:"100%",textAlign:"center"}}>
+              {(liLoading||liPredLoading||liAgentsLoading)?"⬡ UPDATING INTELLIGENCE…":"⬡ REFRESH INTELLIGENCE + 7 AGENTS + PREDICT"}
+            </button>
+          )}
+
+          {/* Empty state */}
+          {!liLocation&&!liLoading&&(
+            <div style={{textAlign:"center",padding:"40px 10px"}}>
+              <div style={{fontSize:24,marginBottom:12,opacity:.4}}>🛰</div>
+              <div style={{fontSize:11,color:"#4b5563",fontFamily:"monospace",marginBottom:6}}>No location selected</div>
+              <div style={{fontSize:9,color:"#374151",fontFamily:"monospace",lineHeight:1.8}}>
+                Search a location above to fetch:<br/>
+                • Exact boundary polygon on the map<br/>
+                • Live local news from GDELT<br/>
+                • AI movement & threat prediction<br/>
+                • Auto-evolving intelligence every 2 min
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

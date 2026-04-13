@@ -19,7 +19,7 @@ module.exports = async function handler(req, res) {
   for (const query of queries) {
     try {
       const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}+sourcelang:eng&mode=artlist&maxrecords=30&format=json&timespan=${timespan}&sort=DateDesc`;
-      const resp = await axios.get(url, { timeout: 12000 });
+      const resp = await axios.get(url, { timeout: 6000 });
       if (resp.status === 429) continue;
       const articles = (resp.data?.articles || []).map(a => ({
         title:  a.title,

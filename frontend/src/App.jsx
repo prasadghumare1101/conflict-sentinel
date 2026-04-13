@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, lazy, Suspense } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import ErrorBoundary from './ErrorBoundary';
 import './App.css';
 
@@ -76,6 +77,7 @@ function App() {
           </ErrorBoundary>
         </div>
       </div>
+      <Analytics />
     </div>
   );
 }

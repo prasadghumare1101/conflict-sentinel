@@ -1,7 +1,12 @@
 import React from "react";
+// three must be imported before @react-three/fiber and @react-three/drei
+import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { Environment, Float, Lightformer } from "@react-three/drei";
 import { Planet } from "./Planet";
+
+// Suppress unused import warning — THREE must be in scope first
+void THREE;
 
 const HeroBackground = () => {
   return (
@@ -17,13 +22,9 @@ const HeroBackground = () => {
     }}>
       <Canvas shadows camera={{ position: [0, 0, -10], fov: 17.5, near: 1, far: 20 }}>
         <ambientLight intensity={0.5} />
-
-        {/* Makes the planet float up and down slightly */}
         <Float speed={1.5} rotationIntensity={0.5} floatIntensity={0.5}>
           <Planet scale={1} />
         </Float>
-
-        {/* High-end Studio Lighting */}
         <Environment resolution={256}>
           <group rotation={[-Math.PI / 3, 4, 1]}>
             <Lightformer form="circle" intensity={2} position={[0, 5, -9]} scale={10} />

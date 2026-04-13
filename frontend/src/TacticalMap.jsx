@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { MapContainer, TileLayer, Circle, CircleMarker, Popup, useMap, Tooltip, Marker, GeoJSON } from 'react-leaflet';
-import L from 'leaflet';
+// leaflet must be imported before react-leaflet to avoid TDZ in bundled output
 import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+import { MapContainer, TileLayer, Circle, CircleMarker, Popup, useMap, Tooltip, Marker, GeoJSON } from 'react-leaflet';
 
 /* ─── Global CSS ─────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `

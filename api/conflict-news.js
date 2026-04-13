@@ -30,10 +30,8 @@ module.exports = async function handler(req, res) {
       }));
       return res.json({ articles });
     } catch (err) {
-      if (err.response?.status !== 429) {
-        return res.status(500).json({ error: err.message, articles: [] });
-      }
-      // 429 — try next query variation
+      // On any error (timeout, 5xx, network), try next query variation
+      continue;
     }
   }
 

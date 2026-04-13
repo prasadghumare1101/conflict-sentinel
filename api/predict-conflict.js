@@ -5,7 +5,7 @@
  */
 const axios = require('axios');
 
-const HF_MODEL = 'Qwen/Qwen2.5-72B-Instruct:novita';
+const HF_MODEL = 'moonshotai/Kimi-K2.5:novita';
 
 async function callHF(token, systemPrompt, userPrompt, maxTokens = 1024) {
   const response = await axios.post(

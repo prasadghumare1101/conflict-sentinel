@@ -324,7 +324,7 @@ function LiveFootagePanel(){
 }
 
 /* ─── Main Platform ─────────────────────────────────────────────────────── */
-export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscussionUpdate,onAnalysisRunning,onLocalIntelUpdate}){
+export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscussionUpdate,onAnalysisRunning,onLocalIntelUpdate,onSarUpdate}){
   const [signal,         setSignal]         = useState("");
   const [running,        setRunning]        = useState(false);
   const [agenticRunning, setAgenticRunning] = useState(false);
@@ -583,7 +583,88 @@ ${newsCtx}`
     { id:'news',       label:'📡 NEWS' },
     { id:'footage',    label:'📺 FOOTAGE' },
     { id:'localintel', label:'🛰 LOCAL' },
+    { id:'sar',        label:'🛸 SAR' },
   ];
+
+  /* ── SAR Satellite state ── */
+  const [sarLat,        setSarLat]        = useState('');
+  const [sarLng,        setSarLng]        = useState('');
+  const [sarRadius,     setSarRadius]     = useState('50');
+  const [sarTimespan,   setSarTimespan]   = useState('30d');
+  const [sarCollection, setSarCollection] = useState('sentinel-1-grd');
+  const [sarPolariz,    setSarPolariz]    = useState('ALL');
+  const [sarScenes,     setSarScenes]     = useState([]);
+  const [sarLoading,    setSarLoading]    = useState(false);
+  const [sarSelected,   setSarSelected]  = useState(null); // scene object
+  const [sarPreviewUrl, setSarPreviewUrl] = useState(null);
+  const [sarPreviewLoading, setSarPreviewLoading] = useState(false);
+  const [sarError,      setSarError]      = useState(null);
+  const [sarTotal,      setSarTotal]      = useState(0);
+  const [sarInfo,       setSarInfo]       = useState(null); // {location, datetime}
+  const [sarStatus,     setSarStatus]     = useState(null); // connection check
+
+  // Auto-fill lat/lng from Local Intel boundary when switching to SAR tab
+  useEffect(() => {
+    if (activeView === 'sar' && liBoundary?.lat && !sarLat) {
+      setSarLat(liBoundary.lat.toFixed(5));
+      setSarLng(liBoundary.lng.toFixed(5));
+    }
+    if (activeView === 'sar' && !sarStatus) {
+      fetch('/api/sar-catalog?action=status').then(r=>r.json()).then(d=>setSarStatus(d)).catch(()=>{});
+    }
+  }, [activeView, liBoundary, sarLat, sarStatus]);
+
+  const fetchSarScenes = useCallback(async () => {
+    const lat = parseFloat(sarLat), lng = parseFloat(sarLng);
+    if (isNaN(lat) || isNaN(lng)) { setSarError('Enter valid latitude and longitude.'); return; }
+    setSarLoading(true); setSarError(null); setSarScenes([]); setSarSelected(null); setSarPreviewUrl(null);
+    try {
+      const params = new URLSearchParams({
+        action:      'search',
+        lat:         lat.toString(),
+        lng:         lng.toString(),
+        radius_km:   sarRadius || '50',
+        timespan:    sarTimespan,
+        collection:  sarCollection,
+        polarization:sarPolariz,
+        limit:       '10',
+        location:    liLocation || '',
+      });
+      const r = await fetch(`/api/sar-catalog?${params}`);
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      setSarScenes(d.scenes || []);
+      setSarTotal(d.total || 0);
+      setSarInfo({ location: d.location, datetime: d.datetime });
+      if (onSarUpdate) onSarUpdate(null); // clear any previous footprint
+    } catch(e) { setSarError(e.message); }
+    finally    { setSarLoading(false); }
+  }, [sarLat, sarLng, sarRadius, sarTimespan, sarCollection, sarPolariz, liLocation, onSarUpdate]);
+
+  const loadSarPreview = useCallback(async (scene) => {
+    if (!scene) return;
+    setSarSelected(scene); setSarPreviewUrl(null); setSarPreviewLoading(true);
+    if (onSarUpdate) onSarUpdate({ footprint: scene.geometry, bbox: scene.bbox, sceneName: scene.date_label, date: scene.date });
+    try {
+      const params = new URLSearchParams({
+        action:      'preview',
+        bbox:        JSON.stringify(scene.bbox),
+        from_date:   scene.preview_from,
+        to_date:     scene.preview_to,
+        collection:  sarCollection,
+        orbit:       scene.orbit,
+        polarization:(scene.polarization.includes('VV') && scene.polarization.includes('VH')) ? 'DV' : (scene.polarization.includes('VH') ? 'SV' : 'SH'),
+      });
+      const r = await fetch(`/api/sar-catalog?${params}`);
+      if (!r.ok) throw new Error(`Preview error: ${r.status}`);
+      const blob = await r.blob();
+      setSarPreviewUrl(URL.createObjectURL(blob));
+    } catch(e) {
+      setSarPreviewUrl(null); // show error state silently
+    } finally {
+      setSarPreviewLoading(false);
+    }
+  }, [sarCollection, onSarUpdate]);
 
   /* ── Local Intelligence state ── */
   const [liLocation,   setLiLocation]   = useState('');
@@ -1206,6 +1287,204 @@ ${newsCtx}`
                 • Live local news from GDELT<br/>
                 • AI movement & threat prediction<br/>
                 • Auto-evolving intelligence every 2 min
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── SAR SATELLITE VIEW ── */}
+      {activeView==='sar'&&(
+        <div className="sp-scroll" style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:10,padding:"12px 12px 16px"}}>
+
+          {/* Header + status */}
+          <div style={{background:"#0d1320",border:"0.5px solid rgba(16,185,129,.2)",borderRadius:8,padding:"10px 12px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div>
+                <div style={{fontSize:8,color:"#6b7280",fontFamily:"monospace",letterSpacing:"0.14em",marginBottom:2}}>🛸 SENTINEL-1 SAR SATELLITE DATA</div>
+                <div style={{fontSize:11,color:"#f9fafb",fontFamily:"monospace"}}>Copernicus Data Space Ecosystem</div>
+              </div>
+              <span style={{fontSize:8,padding:"2px 8px",borderRadius:3,fontFamily:"monospace",
+                background:sarStatus?.authenticated?"rgba(16,185,129,.12)":"rgba(107,114,128,.1)",
+                color:sarStatus?.authenticated?"#10b981":"#6b7280",
+                border:`0.5px solid ${sarStatus?.authenticated?"rgba(16,185,129,.3)":"rgba(107,114,128,.2)"}`}}>
+                {sarStatus?.authenticated?"◉ CONNECTED":"○ CHECKING…"}
+              </span>
+            </div>
+            {liBoundary&&(
+              <div style={{fontSize:9,color:"#3b82f6",fontFamily:"monospace"}}>
+                ↳ Auto-using Local Intel coords: {liBoundary.lat?.toFixed(4)}, {liBoundary.lng?.toFixed(4)}
+              </div>
+            )}
+          </div>
+
+          {/* Search form */}
+          <div style={{background:"#0d1320",border:"0.5px solid #1f2937",borderRadius:8,overflow:"hidden"}}>
+            <div style={{padding:"7px 12px",borderBottom:"0.5px solid #1f2937",background:"rgba(16,185,129,.04)",fontSize:8,fontFamily:"monospace",letterSpacing:"0.14em",color:"#6b7280"}}>
+              AREA OF INTEREST
+            </div>
+            <div style={{padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",gap:6}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:8,color:"#4b5563",fontFamily:"monospace",marginBottom:3}}>LATITUDE</div>
+                  <input value={sarLat} onChange={e=>setSarLat(e.target.value)} placeholder="34.4668"
+                    style={{width:"100%",background:"#0a0f1a",border:"0.5px solid #374151",borderRadius:4,padding:"6px 8px",color:"#f9fafb",fontSize:11,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:8,color:"#4b5563",fontFamily:"monospace",marginBottom:3}}>LONGITUDE</div>
+                  <input value={sarLng} onChange={e=>setSarLng(e.target.value)} placeholder="31.5017"
+                    style={{width:"100%",background:"#0a0f1a",border:"0.5px solid #374151",borderRadius:4,padding:"6px 8px",color:"#f9fafb",fontSize:11,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>
+                </div>
+                <div style={{width:64}}>
+                  <div style={{fontSize:8,color:"#4b5563",fontFamily:"monospace",marginBottom:3}}>RADIUS km</div>
+                  <input value={sarRadius} onChange={e=>setSarRadius(e.target.value)} placeholder="50"
+                    style={{width:"100%",background:"#0a0f1a",border:"0.5px solid #374151",borderRadius:4,padding:"6px 8px",color:"#f9fafb",fontSize:11,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:90}}>
+                  <div style={{fontSize:8,color:"#4b5563",fontFamily:"monospace",marginBottom:3}}>TIMESPAN</div>
+                  <select value={sarTimespan} onChange={e=>setSarTimespan(e.target.value)}
+                    style={{width:"100%",background:"#0a0f1a",border:"0.5px solid #374151",borderRadius:4,padding:"6px 8px",color:"#f9fafb",fontSize:10,fontFamily:"monospace",outline:"none"}}>
+                    <option value="1d">Last 24h</option>
+                    <option value="7d">Last 7 days</option>
+                    <option value="30d">Last 30 days</option>
+                    <option value="90d">Last 90 days</option>
+                  </select>
+                </div>
+                <div style={{flex:1,minWidth:90}}>
+                  <div style={{fontSize:8,color:"#4b5563",fontFamily:"monospace",marginBottom:3}}>PRODUCT TYPE</div>
+                  <select value={sarCollection} onChange={e=>setSarCollection(e.target.value)}
+                    style={{width:"100%",background:"#0a0f1a",border:"0.5px solid #374151",borderRadius:4,padding:"6px 8px",color:"#f9fafb",fontSize:10,fontFamily:"monospace",outline:"none"}}>
+                    <option value="sentinel-1-grd">GRD (standard)</option>
+                    <option value="sentinel-1-slc">SLC (coherence)</option>
+                  </select>
+                </div>
+                <div style={{flex:1,minWidth:80}}>
+                  <div style={{fontSize:8,color:"#4b5563",fontFamily:"monospace",marginBottom:3}}>POLARIZATION</div>
+                  <select value={sarPolariz} onChange={e=>setSarPolariz(e.target.value)}
+                    style={{width:"100%",background:"#0a0f1a",border:"0.5px solid #374151",borderRadius:4,padding:"6px 8px",color:"#f9fafb",fontSize:10,fontFamily:"monospace",outline:"none"}}>
+                    <option value="ALL">All</option>
+                    <option value="VV VH">VV+VH (dual)</option>
+                    <option value="VV">VV only</option>
+                    <option value="VH">VH only</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                {[
+                  {name:"Gaza",    lat:"31.5017",lng:"34.4668"},
+                  {name:"Donetsk", lat:"48.0159",lng:"37.8028"},
+                  {name:"Kharkiv", lat:"49.9935",lng:"36.2304"},
+                  {name:"Rafah",   lat:"31.2827",lng:"34.2654"},
+                  {name:"Sanaa",   lat:"15.3694",lng:"44.1910"},
+                  {name:"Khartoum",lat:"15.5007",lng:"32.5599"},
+                ].map(p=>(
+                  <button key={p.name} onClick={()=>{setSarLat(p.lat);setSarLng(p.lng);}}
+                    style={{fontSize:8,padding:"3px 9px",border:"0.5px solid #374151",borderRadius:4,background:"#111827",color:"#9ca3af",cursor:"pointer",fontFamily:"monospace"}}>
+                    {p.name}
+                  </button>
+                ))}
+                {liBoundary&&(
+                  <button onClick={()=>{setSarLat(liBoundary.lat.toFixed(5));setSarLng(liBoundary.lng.toFixed(5));}}
+                    style={{fontSize:8,padding:"3px 9px",border:"0.5px solid rgba(16,185,129,.4)",borderRadius:4,background:"rgba(16,185,129,.08)",color:"#10b981",cursor:"pointer",fontFamily:"monospace"}}>
+                    ↳ Use Local Intel
+                  </button>
+                )}
+              </div>
+              <button onClick={fetchSarScenes} disabled={sarLoading||!sarLat||!sarLng}
+                style={{padding:"9px 14px",background:"rgba(16,185,129,.12)",border:"0.5px solid rgba(16,185,129,.45)",borderRadius:6,color:"#10b981",fontSize:10,fontFamily:"monospace",fontWeight:700,cursor:"pointer",letterSpacing:"0.1em"}}>
+                {sarLoading?"⬡ SEARCHING SAR ARCHIVE…":"🛸 SEARCH SENTINEL-1 SCENES"}
+              </button>
+            </div>
+          </div>
+
+          {sarError&&(
+            <div style={{background:"rgba(239,68,68,.08)",border:"0.5px solid rgba(239,68,68,.3)",borderRadius:6,padding:"8px 12px",fontSize:10,color:"#ef4444",fontFamily:"monospace"}}>
+              ⚠ {sarError}
+            </div>
+          )}
+
+          {sarScenes.length>0&&sarInfo&&(
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 4px"}}>
+              <span style={{fontSize:8,color:"#10b981",fontFamily:"monospace",letterSpacing:"0.12em"}}>
+                🛸 {sarScenes.length} SCENES · {sarInfo.datetime}
+              </span>
+              <span style={{fontSize:8,color:"#4b5563",fontFamily:"monospace"}}>{sarInfo.location}</span>
+            </div>
+          )}
+
+          {sarScenes.map((scene,i)=>(
+            <div key={scene.id} onClick={()=>loadSarPreview(scene)}
+              style={{background:sarSelected?.id===scene.id?"#0d1320":"#111827",
+                border:`0.5px solid ${sarSelected?.id===scene.id?"rgba(251,191,36,.5)":"#1f2937"}`,
+                borderRadius:8,padding:"10px 12px",cursor:"pointer",transition:"border-color .15s",position:"relative",overflow:"hidden"}}>
+              {sarSelected?.id===scene.id&&<div style={{position:"absolute",top:0,left:0,right:0,height:2,background:"#f59e0b"}}/>}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"#f9fafb",fontFamily:"monospace",marginBottom:3}}>
+                    Scene #{i+1} · {scene.date_label||scene.date?.slice(0,16)}
+                  </div>
+                  <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:4}}>
+                    <span style={{fontSize:8,padding:"1px 6px",borderRadius:3,background:"rgba(59,130,246,.12)",color:"#60a5fa",border:"0.5px solid rgba(59,130,246,.25)",fontFamily:"monospace"}}>{scene.orbit}</span>
+                    <span style={{fontSize:8,padding:"1px 6px",borderRadius:3,background:"rgba(168,85,247,.12)",color:"#c084fc",border:"0.5px solid rgba(168,85,247,.25)",fontFamily:"monospace"}}>{scene.polarization}</span>
+                    <span style={{fontSize:8,padding:"1px 6px",borderRadius:3,background:"rgba(16,185,129,.08)",color:"#10b981",border:"0.5px solid rgba(16,185,129,.2)",fontFamily:"monospace"}}>{scene.mode} · {scene.resolution}</span>
+                  </div>
+                  <div style={{fontSize:9,color:"#6b7280",fontFamily:"monospace"}}>{scene.platform} · Orbit #{scene.orbit_number}</div>
+                </div>
+                <span style={{fontSize:8,color:"#f59e0b",fontFamily:"monospace",flexShrink:0}}>
+                  {sarSelected?.id===scene.id?"▼ SELECTED":"▶ VIEW"}
+                </span>
+              </div>
+
+              {sarSelected?.id===scene.id&&(
+                <div style={{marginTop:10,borderTop:"0.5px solid #1f2937",paddingTop:10}}>
+                  <div style={{borderRadius:6,overflow:"hidden",background:"#0a0f1a",border:"0.5px solid #374151",marginBottom:8,minHeight:180,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
+                    {sarPreviewLoading&&(
+                      <div style={{textAlign:"center"}}>
+                        <div style={{fontSize:9,color:"#4b5563",fontFamily:"monospace",marginBottom:4,animation:"pulse-bar 1.5s ease-in-out infinite"}}>Generating SAR preview…</div>
+                        <div style={{fontSize:8,color:"#374151",fontFamily:"monospace"}}>Process API · SentinelHub</div>
+                      </div>
+                    )}
+                    {sarPreviewUrl&&!sarPreviewLoading&&(
+                      <img src={sarPreviewUrl} alt="SAR Preview" style={{width:"100%",display:"block",borderRadius:4}}/>
+                    )}
+                    {!sarPreviewUrl&&!sarPreviewLoading&&(
+                      <div style={{textAlign:"center",padding:"20px 0"}}>
+                        <div style={{fontSize:9,color:"#374151",fontFamily:"monospace"}}>Preview unavailable.</div>
+                        <div style={{fontSize:8,color:"#374151",fontFamily:"monospace",marginTop:3}}>No data in this scene's time window.</div>
+                      </div>
+                    )}
+                    {sarPreviewUrl&&(
+                      <div style={{position:"absolute",bottom:6,right:6,fontSize:8,color:"rgba(16,185,129,.7)",fontFamily:"monospace",background:"rgba(0,0,0,.6)",padding:"2px 6px",borderRadius:3}}>
+                        VV/VH FALSE-COLOUR
+                      </div>
+                    )}
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <a href={scene.copernicus_url} target="_blank" rel="noopener noreferrer"
+                      style={{fontSize:9,padding:"5px 10px",background:"rgba(59,130,246,.1)",border:"0.5px solid rgba(59,130,246,.35)",borderRadius:4,color:"#60a5fa",fontFamily:"monospace",textDecoration:"none"}}>
+                      ↗ Copernicus Browser
+                    </a>
+                    <button onClick={e=>{e.stopPropagation();setSarSelected(null);if(onSarUpdate)onSarUpdate(null);}}
+                      style={{fontSize:9,padding:"5px 10px",background:"rgba(107,114,128,.08)",border:"0.5px solid #374151",borderRadius:4,color:"#6b7280",fontFamily:"monospace",cursor:"pointer"}}>
+                      ✕ Collapse
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {!sarLoading&&sarScenes.length===0&&!sarError&&(
+            <div style={{textAlign:"center",padding:"40px 10px"}}>
+              <div style={{fontSize:28,marginBottom:12,opacity:.35}}>🛸</div>
+              <div style={{fontSize:11,color:"#4b5563",fontFamily:"monospace",marginBottom:6}}>No SAR scenes loaded</div>
+              <div style={{fontSize:9,color:"#374151",fontFamily:"monospace",lineHeight:1.8}}>
+                Enter coordinates → Search Sentinel-1 scenes<br/>
+                Supports GRD / SLC · IW mode · VV+VH<br/>
+                Scene footprint auto-overlaid on map<br/>
+                SAR preview generated via Copernicus Process API
               </div>
             </div>
           )}

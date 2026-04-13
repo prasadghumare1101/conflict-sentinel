@@ -11,6 +11,7 @@ function App() {
   const [analysisRunning,   setAnalysisRunning]   = useState(false);
   const [panelOpen,         setPanelOpen]         = useState(true);
   const [localIntelOverlay, setLocalIntelOverlay] = useState(null); // {boundary, location}
+  const [sarOverlay,        setSarOverlay]        = useState(null); // {bbox, geojson, sceneName}
 
   // lg+ (≥1024px): panel always open. Below 1024px: closed by default, user toggles.
   useEffect(() => {
@@ -24,6 +25,7 @@ function App() {
   const onDiscussionUpdate  = useCallback((entries) => setDiscussion(entries), []);
   const onAnalysisRunning   = useCallback((running)  => setAnalysisRunning(running), []);
   const onLocalIntelUpdate  = useCallback((overlay)  => setLocalIntelOverlay(overlay), []);
+  const onSarUpdate         = useCallback((overlay)  => setSarOverlay(overlay),        []);
 
   return (
     <div className="app-root">
@@ -37,6 +39,7 @@ function App() {
           discussion={discussion}
           analysisRunning={analysisRunning}
           localIntelOverlay={localIntelOverlay}
+          sarOverlay={sarOverlay}
         />
       </div>
 
@@ -65,6 +68,7 @@ function App() {
             onDiscussionUpdate={onDiscussionUpdate}
             onAnalysisRunning={onAnalysisRunning}
             onLocalIntelUpdate={onLocalIntelUpdate}
+            onSarUpdate={onSarUpdate}
           />
         </div>
       </div>

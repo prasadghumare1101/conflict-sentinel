@@ -18,7 +18,7 @@ except ImportError:
 
 # HuggingFace LLM via OpenAI-compatible router
 hf_llm = LLM(
-    model="openai/Qwen/Qwen2.5-72B-Instruct:novita",
+    model="openai/moonshotai/Kimi-K2.5:novita",
     base_url="https://router.huggingface.co/v1",
     api_key=os.environ.get("HF_TOKEN", ""),
 )

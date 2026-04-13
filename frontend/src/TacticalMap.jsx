@@ -1422,7 +1422,7 @@ function AgentDiscussionOverlay({ discussion, agentIntel, analysisRunning }) {
 }
 
 /* ─── Main component ─────────────────────────────────────────────────────── */
-export default function TacticalMap({ predictedRoi, agentIntel, discussion, analysisRunning, localIntelOverlay }) {
+export default function TacticalMap({ predictedRoi, agentIntel, discussion, analysisRunning, localIntelOverlay, sarOverlay }) {
   const [conflictEvents, setConflictEvents] = useState([]);
   const [quakes,         setQuakes]         = useState([]);
   const [naturalEvts,    setNaturalEvts]    = useState([]);
@@ -2142,6 +2142,31 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
                 pathOptions={{ color:'#3b82f6', weight:2, fillColor:'#3b82f6', fillOpacity:0.9 }}>
                 <Tooltip permanent direction="top" offset={[0,-10]}>
                   <span style={{fontFamily:'monospace',fontSize:10,color:'#3b82f6',fontWeight:700}}>🔍 {mapSearchOverlay.location?.toUpperCase()}</span>
+                </Tooltip>
+              </CircleMarker>
+            )}
+
+            {/* ── SAR satellite footprint overlay ── */}
+            {sarOverlay?.footprint && (
+              <GeoJSON
+                key={`sar-${sarOverlay.sceneName}`}
+                data={{ type:'Feature', geometry: sarOverlay.footprint, properties:{} }}
+                style={{ color:'#f59e0b', weight:2.5, opacity:0.95, fillColor:'#f59e0b', fillOpacity:0.06, dashArray:'8 4' }}
+              />
+            )}
+            {sarOverlay?.bbox && !sarOverlay?.footprint && (() => {
+              const [w,s,e,n] = sarOverlay.bbox;
+              const lat=(s+n)/2, lng=(w+e)/2;
+              return (
+                <Circle center={[lat,lng]} radius={Math.abs(e-w)*55000}
+                  pathOptions={{ color:'#f59e0b', weight:2, fillColor:'#f59e0b', fillOpacity:0.06, dashArray:'8 4' }} />
+              );
+            })()}
+            {sarOverlay?.bbox && (
+              <CircleMarker center={[(sarOverlay.bbox[1]+sarOverlay.bbox[3])/2, (sarOverlay.bbox[0]+sarOverlay.bbox[2])/2]} radius={7}
+                pathOptions={{ color:'#f59e0b', weight:2, fillColor:'#f59e0b', fillOpacity:0.9 }}>
+                <Tooltip permanent direction="top" offset={[0,-10]}>
+                  <span style={{fontFamily:'monospace',fontSize:10,color:'#f59e0b',fontWeight:700}}>🛸 {sarOverlay.sceneName?.substring(0,20)?.toUpperCase() || 'SAR'}</span>
                 </Tooltip>
               </CircleMarker>
             )}

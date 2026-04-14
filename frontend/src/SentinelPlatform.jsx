@@ -718,6 +718,8 @@ SCENE MANIFEST (${sarScenes.length} scenes):
 ${scenesSummary}
 
 Analyze this SAR dataset and return the JSON intelligence assessment.`;
+    // Overlay all scene footprints on the map during analysis
+    if (onSarUpdate) onSarUpdate({ allScenes: sarScenes, location });
     try {
       const r = await fetch('/api/gemini-proxy', {
         method: 'POST',
@@ -735,7 +737,7 @@ Analyze this SAR dataset and return the JSON intelligence assessment.`;
     } finally {
       setSarAnalysisLoading(false);
     }
-  }, [sarScenes, sarInfo, sarTotal, liLocation, sarLat, sarLng, sarTimespan, sarCollection, sarPolariz, sarRadius]);
+  }, [sarScenes, sarInfo, sarTotal, liLocation, sarLat, sarLng, sarTimespan, sarCollection, sarPolariz, sarRadius, onSarUpdate]);
 
   // Fetch all 7 local intel agents — must be defined BEFORE fetchLocalIntel (TDZ guard)
   const fetchLiAgents = useCallback(async (loc) => {

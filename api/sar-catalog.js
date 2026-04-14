@@ -142,23 +142,34 @@ module.exports = async function handler(req, res) {
       });
 
       const features = catResp.data?.features || [];
+
+      // Batch-fetch QUICKLOOK URLs from Copernicus OData API (public, no auth needed)
+      // OData returns the actual DownloadLink for the QUICKLOOK asset per product
+      let quicklookMap = {}; // sceneName → public download URL
+      try {
+        const sceneNames = features.map(f => f.id).slice(0, 10);
+        if (sceneNames.length > 0) {
+          const filterExpr = sceneNames.map(n => `Name eq '${n}'`).join(' or ');
+          const odataResp = await axios.get(
+            'https://catalogue.dataspace.copernicus.eu/odata/v1/Products',
+            {
+              params: { '$filter': filterExpr, '$expand': 'Assets' },
+              timeout: 12000,
+            }
+          );
+          for (const product of (odataResp.data?.value || [])) {
+            const qlAsset = product.Assets?.find(a => a.Type === 'QUICKLOOK');
+            if (qlAsset?.DownloadLink) {
+              quicklookMap[product.Name] = qlAsset.DownloadLink;
+            }
+          }
+        }
+      } catch (_) { /* quicklook fetch failed — fall back to Process API */ }
+
       const scenes = features.map(f => {
         const p  = f.properties || {};
         const dt = new Date(p.datetime || 0);
-        // Extract thumbnail/quicklook from STAC assets
-        const assets = f.assets || {};
-        // Copernicus DataSpace STAC uses 'THUMBNAIL' (uppercase) key for Sentinel-1
-        const thumbnailUrl =
-          assets.THUMBNAIL?.href    ||
-          assets.thumbnail?.href    ||
-          assets.QUICKLOOK?.href    ||
-          assets.quicklook?.href    ||
-          assets.overview?.href     ||
-          assets.preview?.href      ||
-          // Fallback: find any asset with 'thumbnail' or 'preview' in the role
-          Object.values(assets).find(a => a?.roles?.includes('thumbnail') || a?.roles?.includes('overview'))?.href ||
-          null;
-        const assetKeys = Object.keys(assets); // for debugging
+        const thumbnailUrl = quicklookMap[f.id] || null;
         return {
           id:           f.id,
           geometry:     f.geometry,
@@ -175,7 +186,6 @@ module.exports = async function handler(req, res) {
           preview_to:   new Date(dt + 24*3600*1000).toISOString().slice(0,10)+'T23:59:59Z',
           bbox,
           thumbnail_url:  thumbnailUrl,
-          _asset_keys:    assetKeys,   // debug: remove once thumbnail is confirmed
           copernicus_url: `https://browser.dataspace.copernicus.eu/?zoom=10&lat=${parseFloat(lat).toFixed(4)}&lng=${parseFloat(lng).toFixed(4)}&themeId=SAR`,
         };
       });

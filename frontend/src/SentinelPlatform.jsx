@@ -679,9 +679,18 @@ ${newsCtx}`
       const r = await fetch(`/api/sar-catalog?${params}`);
       if (!r.ok) throw new Error(`Preview error: ${r.status}`);
       const blob = await r.blob();
-      setSarPreviewUrl(URL.createObjectURL(blob));
+      const url = URL.createObjectURL(blob);
+      setSarPreviewUrl(url);
+      // Push the actual image URL to the map so it can render it as an ImageOverlay
+      if (onSarUpdate) onSarUpdate({
+        footprint: scene.geometry,
+        bbox:      scene.bbox,
+        sceneName: scene.date_label,
+        date:      scene.date,
+        previewUrl: url,
+      });
     } catch(e) {
-      setSarPreviewUrl(null); // show error state silently
+      setSarPreviewUrl(null);
     } finally {
       setSarPreviewLoading(false);
     }

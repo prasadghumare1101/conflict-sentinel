@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 // leaflet must be imported before react-leaflet to avoid TDZ in bundled output
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { MapContainer, TileLayer, Circle, CircleMarker, Popup, useMap, Tooltip, Marker, GeoJSON, Pane } from 'react-leaflet';
+import { MapContainer, TileLayer, Circle, CircleMarker, Popup, useMap, Tooltip, Marker, GeoJSON, Pane, ImageOverlay } from 'react-leaflet';
 
 /* ─── Global CSS ─────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
@@ -1913,23 +1913,38 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
 
             {/* ── SAR sandwich layer — sits above tiles, below all tactical markers ── */}
             <Pane name="sarPane" style={{ zIndex: 350 }}>
-              {/* Single selected scene */}
-              {sarOverlay?.footprint && !sarOverlay?.allScenes && (
-                <GeoJSON
-                  key={`sar-${sarOverlay.sceneName}`}
-                  data={{ type:'Feature', geometry: sarOverlay.footprint, properties:{} }}
-                  style={{ color:'#f59e0b', weight:2.5, opacity:0.95, fillColor:'#f59e0b', fillOpacity:0.18, dashArray:'8 4' }}
-                />
-              )}
-              {sarOverlay?.bbox && !sarOverlay?.footprint && !sarOverlay?.allScenes && (
-                <Circle
-                  center={[(sarOverlay.bbox[1]+sarOverlay.bbox[3])/2, (sarOverlay.bbox[0]+sarOverlay.bbox[2])/2]}
-                  radius={Math.abs(sarOverlay.bbox[2]-sarOverlay.bbox[0])*55000}
-                  pathOptions={{ color:'#f59e0b', weight:2, fillColor:'#f59e0b', fillOpacity:0.14, dashArray:'8 4' }}
-                />
-              )}
+              {/* Single selected scene — actual SAR image overlay */}
+              {sarOverlay?.bbox && !sarOverlay?.allScenes && (() => {
+                const b = sarOverlay.bbox; // [west, south, east, north]
+                const bounds = [[b[1], b[0]], [b[3], b[2]]];
+                return (<>
+                  {sarOverlay.previewUrl && (
+                    <ImageOverlay
+                      key={`sar-img-${sarOverlay.sceneName}`}
+                      url={sarOverlay.previewUrl}
+                      bounds={bounds}
+                      opacity={0.82}
+                      zIndex={350}
+                    />
+                  )}
+                  {/* Outline border always visible — faint when image is loaded, solid when loading */}
+                  {sarOverlay.footprint ? (
+                    <GeoJSON
+                      key={`sar-border-${sarOverlay.sceneName}`}
+                      data={{ type:'Feature', geometry: sarOverlay.footprint, properties:{} }}
+                      style={{ color:'#f59e0b', weight: sarOverlay.previewUrl ? 1.5 : 2.5, opacity: sarOverlay.previewUrl ? 0.5 : 0.95, fillColor:'transparent', fillOpacity:0, dashArray:'8 4' }}
+                    />
+                  ) : (
+                    <Circle
+                      center={[(b[1]+b[3])/2, (b[0]+b[2])/2]}
+                      radius={Math.abs(b[2]-b[0])*55000}
+                      pathOptions={{ color:'#f59e0b', weight: sarOverlay.previewUrl ? 1.5 : 2, fillColor:'transparent', fillOpacity:0, dashArray:'8 4' }}
+                    />
+                  )}
+                </>);
+              })()}
 
-              {/* Analysis mode — all scene footprints */}
+              {/* Analysis mode — footprint outlines for all scenes (images not bulk-loaded) */}
               {sarOverlay?.allScenes && sarOverlay.allScenes.flatMap((scene, i) => {
                 const hue = (i * 37) % 360;
                 const color = `hsl(${hue},85%,62%)`;
@@ -1942,7 +1957,7 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
                     <GeoJSON
                       key={`sar-fp-${scene.id||i}`}
                       data={{ type:'Feature', geometry: scene.geometry, properties:{} }}
-                      style={{ color, weight:2, opacity:0.9, fillColor:color, fillOpacity:0.13, dashArray:'6 3' }}
+                      style={{ color, weight:2, opacity:0.9, fillColor:color, fillOpacity:0.1, dashArray:'6 3' }}
                     />
                   );
                 } else if (scene.bbox && center) {
@@ -1951,7 +1966,7 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
                       key={`sar-circ-${scene.id||i}`}
                       center={center}
                       radius={Math.abs(scene.bbox[2]-scene.bbox[0])*50000}
-                      pathOptions={{ color, weight:2, fillColor:color, fillOpacity:0.1, dashArray:'6 3' }}
+                      pathOptions={{ color, weight:2, fillColor:color, fillOpacity:0.08, dashArray:'6 3' }}
                     />
                   );
                 }

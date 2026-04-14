@@ -220,6 +220,11 @@ const INTEL_HOTSPOTS = [
   { id:'hs-10', name:'Sahel Region',        lat:14.5, lng:-2.0, escalation:3, trend:'escalating',  summary:'JNIM/IS-Sahel expanding; Wagner successor operations' },
   { id:'hs-11', name:'Lebanon/Hezbollah',   lat:33.5, lng:35.9, escalation:4, trend:'de-escalating',summary:'Ceasefire fragile; IDF maintains southern operations' },
   { id:'hs-12', name:'Pakistan-India LOC',  lat:34.5, lng:74.0, escalation:2, trend:'stable',      summary:'Periodic skirmishes; diplomatic channels open' },
+  { id:'hs-13', name:'Manipur (India)',     lat:24.7, lng:93.9, escalation:3, trend:'escalating',  summary:'Ethnic conflict; AFSPA zones; displacement 68k+ civilians' },
+  { id:'hs-14', name:'Nagaland (NSCN)',     lat:26.2, lng:94.6, escalation:2, trend:'stable',      summary:'Peace talks stalled; NSCN-IM ceasefire holding tenuously' },
+  { id:'hs-15', name:'Arunachal Standoff',  lat:28.2, lng:94.7, escalation:3, trend:'escalating',  summary:'China LAC incursions; PLA infrastructure buildup; India counter-deployment' },
+  { id:'hs-16', name:'Assam-Meghalaya',     lat:25.5, lng:91.4, escalation:2, trend:'stable',      summary:'Interstate border dispute; IDP camps; security operations' },
+  { id:'hs-17', name:'Mizoram-Myanmar',     lat:23.2, lng:93.0, escalation:3, trend:'escalating',  summary:'Myanmar refugee influx 35k+; border fencing tensions; drug trafficking routes' },
 ];
 const ESCALATION_COLOR = { 5:'#ef4444', 4:'#f97316', 3:'#f59e0b', 2:'#3b82f6', 1:'#10b981' };
 
@@ -1215,18 +1220,187 @@ function ThreatPatternRadar({ patterns = [] }) {
   );
 }
 
-/* ─── Human Movement Layer — animated IDP/refugee flows ─────────────────── */
-// Population displacement flows: conflict origin → nearest refuge zone
-const MOVEMENT_FLOWS = [
-  { id:'mf-01', from:[31.5,34.4], to:[31.9,35.2], label:'Gaza → West Bank', displaced:'2.2M', color:'#f97316' },
-  { id:'mf-02', from:[48.0,37.8], to:[50.4,30.5], label:'Donetsk → Kyiv',   displaced:'4.1M', color:'#ef4444' },
-  { id:'mf-03', from:[15.5,32.5], to:[15.6,32.5], label:'Khartoum → Chad',  displaced:'7.7M', color:'#f59e0b' },
-  { id:'mf-04', from:[19.7,96.1], to:[27.5,89.6], label:'Myanmar → Thailand',displaced:'900k', color:'#a855f7' },
-  { id:'mf-05', from:[13.5,45.0], to:[12.1,43.1], label:'Yemen → Djibouti', displaced:'4.3M', color:'#3b82f6' },
-  { id:'mf-06', from:[14.5,-2.0], to:[12.4,-1.5], label:'Sahel → S. Coast', displaced:'3.5M', color:'#10b981' },
-  { id:'mf-07', from:[33.5,35.9], to:[33.9,35.5], label:'S. Leb. → Beirut',  displaced:'1.2M', color:'#f97316' },
-  { id:'mf-08', from:[34.5,74.0], to:[33.7,73.0], label:'LoC → Pak. Punjab', displaced:'450k', color:'#06b6d4' },
+/* ─── Movement Layer — civilian IDP flows + military vehicles ───────────── */
+
+// Helper: compute bearing in degrees from (lat1,lng1) to (lat2,lng2)
+function flowBearing(lat1, lng1, lat2, lng2) {
+  const dL = (lng2 - lng1) * Math.PI / 180;
+  const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
+  return (Math.atan2(Math.sin(dL)*Math.cos(φ2), Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(dL)) * 180 / Math.PI + 360) % 360;
+}
+
+// Civilian IDP / refugee flows (orange/amber = conflict displacement)
+const CIVILIAN_FLOWS = [
+  { id:'cf-01', from:[31.50,34.40], to:[31.90,35.20], label:'Gaza → West Bank',       count:'2.2M',  color:'#f97316' },
+  { id:'cf-02', from:[48.00,37.80], to:[50.40,30.50], label:'Donetsk → Kyiv',         count:'4.1M',  color:'#ef4444' },
+  { id:'cf-03', from:[15.55,32.53], to:[12.10,15.03], label:'Khartoum → Chad',        count:'7.7M',  color:'#f59e0b' },
+  { id:'cf-04', from:[19.70,96.10], to:[18.80,98.98], label:'Myanmar → Thailand',     count:'900k',  color:'#a855f7' },
+  { id:'cf-05', from:[13.50,45.00], to:[12.10,43.10], label:'Yemen → Djibouti',       count:'4.3M',  color:'#3b82f6' },
+  { id:'cf-06', from:[14.50,-2.00], to:[6.37,-2.42],  label:'Sahel → Côte d\'Ivoire', count:'3.5M',  color:'#10b981' },
+  { id:'cf-07', from:[33.50,35.90], to:[33.87,35.50], label:'S. Lebanon → Beirut',    count:'1.2M',  color:'#f97316' },
+  { id:'cf-08', from:[34.50,74.00], to:[31.55,74.34], label:'LoC → Punjab (Pak)',      count:'450k',  color:'#06b6d4' },
+  // ── Northeast India ──────────────────────────────────────────────────────
+  { id:'cf-09', from:[24.66,93.91], to:[26.20,92.94], label:'Manipur → Assam',        count:'68k',   color:'#f97316' },
+  { id:'cf-10', from:[24.20,94.05], to:[24.66,93.91], label:'Myanmar border → Manipur',count:'35k',  color:'#a855f7' },
+  { id:'cf-11', from:[26.15,94.56], to:[26.20,92.94], label:'Nagaland → Assam',       count:'28k',   color:'#f59e0b' },
+  { id:'cf-12', from:[23.16,92.94], to:[23.94,91.99], label:'Mizoram → Tripura',      count:'18k',   color:'#06b6d4' },
+  { id:'cf-13', from:[25.46,91.36], to:[26.20,92.94], label:'Meghalaya → Assam',      count:'12k',   color:'#10b981' },
+  { id:'cf-14', from:[28.21,94.72], to:[27.10,93.61], label:'Arunachal border → Jorhat',count:'8k',  color:'#ef4444' },
+  { id:'cf-15', from:[23.94,91.99], to:[23.72,90.41], label:'Tripura → Bangladesh',   count:'22k',   color:'#f97316' },
 ];
+
+// Army truck convoys (olive green supply routes)
+const TRUCK_ROUTES = [
+  // ── Northeast India supply corridors ────────────────────────────────────
+  { id:'tr-01', from:[26.72,88.43], to:[26.20,92.94], label:'Siliguri → Assam (Chicken\'s Neck)', color:'#4ade80' },
+  { id:'tr-02', from:[26.20,92.94], to:[26.62,93.78], label:'Guwahati → Tezpur Depot',            color:'#4ade80' },
+  { id:'tr-03', from:[26.62,93.78], to:[28.21,94.72], label:'Tezpur → Arunachal (NH13)',           color:'#4ade80' },
+  { id:'tr-04', from:[25.67,93.73], to:[26.15,94.56], label:'Dimapur → Kohima (NH29)',             color:'#4ade80' },
+  { id:'tr-05', from:[26.20,92.94], to:[24.66,93.91], label:'Assam → Imphal (NH2)',                color:'#4ade80' },
+  { id:'tr-06', from:[24.66,93.91], to:[24.20,94.05], label:'Imphal → Moreh border (NH102)',       color:'#4ade80' },
+  { id:'tr-07', from:[27.10,93.61], to:[28.21,94.72], label:'Jorhat → Arunachal depot',            color:'#4ade80' },
+  // ── Global supply routes ─────────────────────────────────────────────────
+  { id:'tr-08', from:[50.45,30.52], to:[49.90,36.23], label:'Kyiv → Kharkiv supply',       color:'#fbbf24' },
+  { id:'tr-09', from:[49.00,31.50], to:[48.00,37.80], label:'Dnipro → Donetsk front',      color:'#fbbf24' },
+  { id:'tr-10', from:[34.55,69.21], to:[34.94,69.26], label:'Kabul → Bagram remnants',     color:'#4ade80' },
+  { id:'tr-11', from:[36.80,43.00], to:[35.40,35.95], label:'Mosul → Hmeimim logistics',  color:'#ef4444' },
+  { id:'tr-12', from:[25.12,51.31], to:[15.35,44.21], label:'Al Udeid → Yemen ops',        color:'#3b82f6' },
+  { id:'tr-13', from:[11.55,43.15], to:[12.50,43.50], label:'Djibouti → Eritrea border',   color:'#3b82f6' },
+];
+
+// Tank / armored vehicle movements (red = hostile, blue = friendly, yellow = contested)
+const TANK_ROUTES = [
+  // ── Northeast India / LoC armor ──────────────────────────────────────────
+  { id:'tk-01', from:[32.07,75.99], to:[33.72,74.85], label:'Pathankot Armd → Jammu',     color:'#3b82f6' },
+  { id:'tk-02', from:[33.72,74.85], to:[34.09,74.80], label:'Jammu → Srinagar armor',     color:'#3b82f6' },
+  { id:'tk-03', from:[34.09,74.80], to:[34.53,74.07], label:'Srinagar → LoC forward',     color:'#3b82f6' },
+  { id:'tk-04', from:[33.72,73.04], to:[34.53,74.07], label:'Rawalpindi → LoC (Pak)',      color:'#ef4444' },
+  { id:'tk-05', from:[32.45,76.52], to:[33.18,78.00], label:'Manali → Ladakh armor',      color:'#3b82f6' },
+  // ── Ukraine frontline ────────────────────────────────────────────────────
+  { id:'tk-06', from:[49.99,36.23], to:[49.50,37.50], label:'Kharkiv UA armor →  front',  color:'#fbbf24' },
+  { id:'tk-07', from:[51.67,33.90], to:[48.00,37.80], label:'Sumy → Donetsk thrust',      color:'#fbbf24' },
+  { id:'tk-08', from:[48.70,44.50], to:[48.00,37.80], label:'RU Volgograd → Donetsk',     color:'#ef4444' },
+  { id:'tk-09', from:[47.23,38.90], to:[47.51,34.59], label:'Mariupol → Zaporizhzhia',    color:'#ef4444' },
+  // ── Gaza / Middle East ───────────────────────────────────────────────────
+  { id:'tk-10', from:[31.54,34.89], to:[31.25,34.30], label:'IDF Armor → Gaza City',      color:'#6366f1' },
+  { id:'tk-11', from:[31.36,34.50], to:[31.28,34.26], label:'IDF → Rafah',                color:'#6366f1' },
+  // ── Taiwan Strait ────────────────────────────────────────────────────────
+  { id:'tk-12', from:[25.05,121.53], to:[24.70,121.00], label:'ROCA armor → W. coast',    color:'#3b82f6' },
+  { id:'tk-13', from:[28.70,120.67], to:[26.07,119.30], label:'PLA armor → Fuzhou',       color:'#ef4444' },
+];
+
+// Aircraft / air-force routes (fighter jets, transport, ISR)
+const AIRCRAFT_ROUTES = [
+  // ── Northeast India Air Force ────────────────────────────────────────────
+  { id:'ac-01', from:[26.62,93.78], to:[28.21,94.72], label:'Tezpur AFB → Arunachal CAP', color:'#60a5fa', type:'fighter' },
+  { id:'ac-02', from:[27.10,93.61], to:[26.15,94.56], label:'Jorhat AFB → Nagaland ISR',  color:'#60a5fa', type:'fighter' },
+  { id:'ac-03', from:[24.76,93.90], to:[24.20,94.05], label:'Imphal AFB → Myanmar border',color:'#60a5fa', type:'fighter' },
+  { id:'ac-04', from:[26.62,93.78], to:[33.50,78.20], label:'Tezpur → Ladakh (Su-30MKI)', color:'#60a5fa', type:'fighter' },
+  { id:'ac-05', from:[26.72,88.43], to:[27.40,91.70], label:'Bagdogra → Bhutan border',   color:'#34d399', type:'transport' },
+  { id:'ac-06', from:[26.20,92.94], to:[24.66,93.91], label:'Guwahati → Imphal lift',     color:'#34d399', type:'transport' },
+  // ── Global air operations ────────────────────────────────────────────────
+  { id:'ac-07', from:[37.00,35.43], to:[32.07,36.07], label:'Incirlik → Amman (USAF)',    color:'#3b82f6', type:'fighter' },
+  { id:'ac-08', from:[26.36,127.77], to:[24.00,120.50], label:'Kadena → Taiwan Strait',   color:'#3b82f6', type:'fighter' },
+  { id:'ac-09', from:[52.41,0.56],  to:[49.90,36.23], label:'Lakenheath → Kyiv (F-35)',   color:'#22c55e', type:'fighter' },
+  { id:'ac-10', from:[35.40,35.95], to:[33.50,35.90], label:'Hmeimim → Beirut (RuAF)',    color:'#ef4444', type:'fighter' },
+  { id:'ac-11', from:[35.40,35.95], to:[32.56,13.18], label:'Hmeimim → Tripoli (RuAF)',   color:'#ef4444', type:'fighter' },
+  { id:'ac-12', from:[11.55,43.15], to:[13.50,45.00], label:'Djibouti P-8 → Red Sea ISR', color:'#3b82f6', type:'transport' },
+  { id:'ac-13', from:[25.12,51.31], to:[26.17,50.61], label:'Al Udeid → Bahrain (NAVCENT)',color:'#3b82f6',type:'transport' },
+  { id:'ac-14', from:[18.23,109.57], to:[12.00,114.00], label:'Sanya → SCS (PLAN J-15)', color:'#ef4444', type:'fighter' },
+  { id:'ac-15', from:[48.00,37.80], to:[50.40,30.50], label:'UA Bayraktar → Kyiv RTB',    color:'#fbbf24', type:'fighter' },
+];
+
+// ── SVG icon builders for Leaflet DivIcon ────────────────────────────────
+function truckSvgIcon(rot=0, color='#4ade80') {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 36" width="16" height="26"
+    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 3px ${color})">
+    <rect x="3" y="7" width="16" height="24" rx="2" fill="${color}" opacity=".9"/>
+    <rect x="4" y="1" width="14" height="9"  rx="2" fill="${color}"/>
+    <rect x="5.5" y="2" width="11" height="5" rx="1" fill="#001a08" opacity=".55"/>
+    <rect x="0"  y="9"  width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
+    <rect x="19" y="9"  width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
+    <rect x="0"  y="19" width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
+    <rect x="19" y="19" width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
+    <rect x="0"  y="28" width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
+    <rect x="19" y="28" width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
+    <line x1="6" y1="16" x2="16" y2="16" stroke="#00000033" stroke-width=".8" stroke-dasharray="2 2"/>
+    <line x1="6" y1="22" x2="16" y2="22" stroke="#00000033" stroke-width=".8" stroke-dasharray="2 2"/>
+  </svg>`;
+}
+
+function tankSvgIcon(rot=0, color='#3b82f6') {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 42" width="20" height="30"
+    style="transform:rotate(${rot}deg);transform-origin:50% 60%;filter:drop-shadow(0 0 4px ${color})">
+    <!-- Tracks -->
+    <rect x="0" y="7"  width="5" height="30" rx="2.5" fill="${color}" opacity=".45"/>
+    <rect x="23" y="7" width="5" height="30" rx="2.5" fill="${color}" opacity=".45"/>
+    <line x1="2.5" y1="10" x2="2.5" y2="34" stroke="#00000044" stroke-width=".6" stroke-dasharray="3 2"/>
+    <line x1="25.5" y1="10" x2="25.5" y2="34" stroke="#00000044" stroke-width=".6" stroke-dasharray="3 2"/>
+    <!-- Hull -->
+    <rect x="4" y="9"  width="20" height="24" rx="4" fill="${color}" opacity=".9"/>
+    <!-- Turret -->
+    <circle cx="14" cy="20" r="7" fill="${color}"/>
+    <!-- Gun barrel -->
+    <rect x="12.5" y="0" width="3" height="21" rx="1.5" fill="${color}" opacity=".95"/>
+    <!-- Hatch -->
+    <circle cx="14" cy="20" r="2.5" fill="#00000055"/>
+    <circle cx="14" cy="20" r="1.2" fill="#00000077"/>
+  </svg>`;
+}
+
+function fighterSvgIcon(rot=0, color='#60a5fa') {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 52" width="22" height="28"
+    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 4px ${color})">
+    <!-- Fuselage -->
+    <ellipse cx="20" cy="26" rx="3.5" ry="18" fill="${color}" opacity=".95"/>
+    <!-- Nose cone -->
+    <polygon points="20,3 17,12 23,12" fill="${color}"/>
+    <!-- Delta wings -->
+    <polygon points="20,20 2,38 6,40 20,26 34,40 38,38" fill="${color}" opacity=".85"/>
+    <!-- Tail fins -->
+    <polygon points="20,38 10,48 13,50 20,42 27,50 30,48" fill="${color}" opacity=".75"/>
+    <!-- Engine glow -->
+    <ellipse cx="20" cy="44" rx="3" ry="2" fill="#ff6600" opacity=".8"/>
+    <ellipse cx="20" cy="47" rx="2.5" ry="2" fill="#ff4400" opacity=".55" style="animation:blink .2s linear infinite"/>
+    <!-- Cockpit -->
+    <ellipse cx="20" cy="11" rx="2" ry="3.5" fill="#001a0a" opacity=".85"/>
+  </svg>`;
+}
+
+function transportSvgIcon(rot=0, color='#34d399') {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 48" width="24" height="22"
+    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 3px ${color})">
+    <!-- Fuselage -->
+    <ellipse cx="26" cy="24" rx="20" ry="5" fill="${color}" opacity=".9"/>
+    <!-- Nose -->
+    <polygon points="46,24 38,20 38,28" fill="${color}"/>
+    <!-- Tail -->
+    <polygon points="6,24 12,20 12,28" fill="${color}" opacity=".8"/>
+    <!-- Wings -->
+    <polygon points="26,22 10,15 8,17 26,24 44,17 42,15" fill="${color}" opacity=".8"/>
+    <!-- Tail fin -->
+    <polygon points="8,22 5,14 9,16" fill="${color}" opacity=".75"/>
+    <!-- Engines (under wings) -->
+    <ellipse cx="16" cy="21" rx="3" ry="1.5" fill="${color}" opacity=".7"/>
+    <ellipse cx="36" cy="21" rx="3" ry="1.5" fill="${color}" opacity=".7"/>
+  </svg>`;
+}
+
+function humanDotSvg(color='#f97316') {
+  // Walking figure cluster for civilian IDP flows
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 14" width="14" height="10">
+    <circle cx="4"  cy="3"  r="2" fill="${color}" opacity=".9"/>
+    <line   x1="4"  y1="5"  x2="4"  y2="10" stroke="${color}" stroke-width="1.4" opacity=".8"/>
+    <line   x1="4"  y1="7"  x2="2"  y2="10" stroke="${color}" stroke-width="1.2" opacity=".7"/>
+    <line   x1="4"  y1="7"  x2="6"  y2="10" stroke="${color}" stroke-width="1.2" opacity=".7"/>
+    <circle cx="10" cy="3"  r="2" fill="${color}" opacity=".7"/>
+    <line   x1="10" y1="5"  x2="10" y2="10" stroke="${color}" stroke-width="1.3" opacity=".65"/>
+    <line   x1="10" y1="7"  x2="8"  y2="10" stroke="${color}" stroke-width="1.1" opacity=".6"/>
+    <line   x1="10" y1="7"  x2="12" y2="10" stroke="${color}" stroke-width="1.1" opacity=".6"/>
+    <circle cx="15" cy="4"  r="1.5" fill="${color}" opacity=".5"/>
+    <line   x1="15" y1="5.5" x2="15" y2="10" stroke="${color}" stroke-width="1.1" opacity=".45"/>
+  </svg>`;
+}
 
 function HumanMovementLayer({ active }) {
   const map = useMap();
@@ -1234,45 +1408,76 @@ function HumanMovementLayer({ active }) {
   const rafId = useRef(null);
 
   useEffect(() => {
-    // Cleanup
-    state.current.forEach(s => { s.dot?.remove(); s.line?.remove(); s.label?.remove(); });
+    state.current.forEach(s => {
+      s.dot?.remove(); s.line?.remove(); s.originM?.remove(); s.labelM?.remove();
+    });
     state.current = [];
     cancelAnimationFrame(rafId.current);
     if (!active) return;
 
-    MOVEMENT_FLOWS.forEach(flow => {
+    // Helper to spawn one animated flow
+    function spawnFlow(flow, iconHtml, iconW, iconH, lineOpts, speed) {
       const [fLat,fLng] = flow.from, [tLat,tLng] = flow.to;
-      // Static dashed polyline
-      const line = L.polyline([[fLat,fLng],[tLat,tLng]], {
-        color: flow.color, weight: 1.5, opacity: 0.55, dashArray: '6 6',
-      }).addTo(map);
+      const rot = flowBearing(fLat, fLng, tLat, tLng);
 
-      // Origin pulse marker
+      const line = L.polyline([[fLat,fLng],[tLat,tLng]], lineOpts).addTo(map);
+
+      // Origin pulse
       const originIcon = L.divIcon({
         className:'',
-        html:`<div style="width:10px;height:10px;border-radius:50%;background:${flow.color};box-shadow:0 0 8px ${flow.color};animation:apt-pulse 1.5s ease-in-out infinite"></div>`,
-        iconSize:[10,10], iconAnchor:[5,5],
+        html:`<div style="width:8px;height:8px;border-radius:50%;background:${lineOpts.color};box-shadow:0 0 6px ${lineOpts.color};animation:apt-pulse 1.8s ease-in-out infinite"></div>`,
+        iconSize:[8,8], iconAnchor:[4,4],
       });
-      const originM = L.marker([fLat,fLng], { icon: originIcon, interactive:false }).addTo(map);
+      const originM = L.marker([fLat,fLng], { icon:originIcon, interactive:false, zIndexOffset:400 }).addTo(map);
 
-      // Moving dot along line
-      const dotIcon = L.divIcon({
-        className:'',
-        html:`<div style="width:7px;height:7px;border-radius:50%;background:${flow.color};opacity:0.9;box-shadow:0 0 5px ${flow.color}"></div>`,
-        iconSize:[7,7], iconAnchor:[3.5,3.5],
-      });
-      const dot = L.marker([fLat,fLng], { icon: dotIcon, interactive:false, zIndexOffset:600 }).addTo(map);
+      // Moving icon (SVG with bearing rotation baked in)
+      const actualHtml = typeof iconHtml === 'function' ? iconHtml(rot) : iconHtml;
+      const dotIcon = L.divIcon({ className:'', html:actualHtml, iconSize:[iconW,iconH], iconAnchor:[iconW/2,iconH/2] });
+      const dot = L.marker([fLat,fLng], { icon:dotIcon, interactive:false, zIndexOffset:650 }).addTo(map);
 
-      // Label at midpoint
-      const midLat = (fLat+tLat)/2, midLng = (fLng+tLng)/2;
+      // Midpoint label
+      const midLat=(fLat+tLat)/2, midLng=(fLng+tLng)/2;
       const labelIcon = L.divIcon({
         className:'',
-        html:`<div style="background:rgba(0,0,0,0.75);border:0.5px solid ${flow.color}66;border-radius:4px;padding:2px 6px;font-family:monospace;font-size:8px;color:${flow.color};white-space:nowrap;pointer-events:none">↳ ${flow.displaced} displaced</div>`,
-        iconSize:[120,18], iconAnchor:[60,9],
+        html:`<div style="background:rgba(0,0,0,0.8);border:0.5px solid ${lineOpts.color}66;border-radius:3px;padding:1px 5px;font-family:monospace;font-size:7.5px;color:${lineOpts.color};white-space:nowrap;pointer-events:none">${flow.label}${flow.count?' · '+flow.count:''}</div>`,
+        iconSize:[200,14], iconAnchor:[100,7],
       });
-      const label = L.marker([midLat, midLng], { icon: labelIcon, interactive:false, zIndexOffset:500 }).addTo(map);
+      const labelM = L.marker([midLat,midLng], { icon:labelIcon, interactive:false, zIndexOffset:450 }).addTo(map);
 
-      state.current.push({ dot, line, label: originM, label2: label, from:[fLat,fLng], to:[tLat,tLng], progress: Math.random(), speed: 0.0003 + Math.random()*0.0002 });
+      state.current.push({ dot, line, originM, labelM, from:[fLat,fLng], to:[tLat,tLng], progress: Math.random(), speed, iconHtml, iconW, iconH });
+    }
+
+    // 1. Civilian IDP flows
+    CIVILIAN_FLOWS.forEach(f => spawnFlow(f,
+      (rot) => humanDotSvg(f.color), 14, 10,
+      { color:f.color, weight:1.5, opacity:0.45, dashArray:'5 5' },
+      0.00025 + Math.random()*0.00015
+    ));
+
+    // 2. Army truck convoys
+    TRUCK_ROUTES.forEach(f => spawnFlow(f,
+      (rot) => truckSvgIcon(rot, f.color), 16, 26,
+      { color:f.color, weight:1.8, opacity:0.55, dashArray:'8 4' },
+      0.00018 + Math.random()*0.00012
+    ));
+
+    // 3. Tank columns
+    TANK_ROUTES.forEach(f => spawnFlow(f,
+      (rot) => tankSvgIcon(rot, f.color), 20, 30,
+      { color:f.color, weight:2, opacity:0.6, dashArray:'none' },
+      0.00012 + Math.random()*0.00010
+    ));
+
+    // 4. Aircraft
+    AIRCRAFT_ROUTES.forEach(f => {
+      const iconFn = f.type === 'transport'
+        ? (rot) => transportSvgIcon(rot, f.color)
+        : (rot) => fighterSvgIcon(rot, f.color);
+      spawnFlow(f,
+        iconFn, 24, 28,
+        { color:f.color, weight:1.2, opacity:0.5, dashArray:'4 8' },
+        0.00035 + Math.random()*0.00025  // aircraft move fastest
+      );
     });
 
     let last = 0;
@@ -1283,8 +1488,8 @@ function HumanMovementLayer({ active }) {
         s.progress += dt * s.speed;
         if (s.progress > 1) s.progress = 0;
         const t = s.progress;
-        const lat = s.from[0] + (s.to[0] - s.from[0]) * t;
-        const lng = s.from[1] + (s.to[1] - s.from[1]) * t;
+        const lat = s.from[0] + (s.to[0]-s.from[0]) * t;
+        const lng = s.from[1] + (s.to[1]-s.from[1]) * t;
         s.dot.setLatLng([lat, lng]);
       });
       rafId.current = requestAnimationFrame(step);
@@ -1293,7 +1498,7 @@ function HumanMovementLayer({ active }) {
 
     return () => {
       cancelAnimationFrame(rafId.current);
-      state.current.forEach(s => { s.dot?.remove(); s.line?.remove(); s.label?.remove(); s.label2?.remove(); });
+      state.current.forEach(s => { s.dot?.remove(); s.line?.remove(); s.originM?.remove(); s.labelM?.remove(); });
       state.current = [];
     };
   }, [map, active]);
@@ -1315,6 +1520,11 @@ const HOTSPOT_FEEDS = {
   'Sahel Region':      { id:'l8PMl7tUDIE', name:'France 24' },
   'Lebanon/Hezbollah': { id:'nU5gyDFyB28', name:'Al Jazeera' },
   'Pakistan-India LOC':{ id:'qHkqkpP3J0g', name:'NDTV India' },
+  'Manipur (India)':   { id:'qHkqkpP3J0g', name:'NDTV India' },
+  'Nagaland (NSCN)':   { id:'qHkqkpP3J0g', name:'NDTV India' },
+  'Arunachal Standoff':{ id:'qHkqkpP3J0g', name:'NDTV India' },
+  'Assam-Meghalaya':   { id:'qHkqkpP3J0g', name:'NDTV India' },
+  'Mizoram-Myanmar':   { id:'qHkqkpP3J0g', name:'NDTV India' },
 };
 
 function HoverFootagePanel({ hotspot, news, position, onClose }) {

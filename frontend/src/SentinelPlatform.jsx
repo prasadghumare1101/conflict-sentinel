@@ -324,7 +324,7 @@ function LiveFootagePanel(){
 }
 
 /* ─── Main Platform ─────────────────────────────────────────────────────── */
-export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscussionUpdate,onAnalysisRunning,onLocalIntelUpdate,onSarUpdate}){
+export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscussionUpdate,onAnalysisRunning,onLocalIntelUpdate,onSarUpdate,onSarAutoOverlay}){
   const [signal,         setSignal]         = useState("");
   const [running,        setRunning]        = useState(false);
   const [agenticRunning, setAgenticRunning] = useState(false);
@@ -634,6 +634,58 @@ ${newsCtx}`
       fetch('/api/sar-catalog?action=status').then(r=>r.json()).then(d=>setSarStatus(d)).catch(()=>{});
     }
   }, [activeView, liBoundary, sarLat, sarStatus]);
+
+  // Auto-overlay: fetch most-recent SAR scene for each conflict hotspot on mount
+  useEffect(() => {
+    if (!onSarAutoOverlay) return;
+    const HOTSPOTS = [
+      { zone:'Gaza',     lat: 31.5017, lng: 34.4668 },
+      { zone:'Donetsk',  lat: 48.0159, lng: 37.8028 },
+      { zone:'Kharkiv',  lat: 49.9935, lng: 36.2304 },
+      { zone:'Rafah',    lat: 31.2827, lng: 34.2654 },
+      { zone:'Khartoum', lat: 15.5007, lng: 32.5599 },
+    ];
+
+    async function fetchSceneAndThumb(hotspot) {
+      try {
+        const params = new URLSearchParams({
+          action: 'search', lat: hotspot.lat, lng: hotspot.lng,
+          radius_km: '80', timespan: '3d', collection: 'sentinel-1-grd',
+          limit: '1',
+        });
+        const r = await fetch(`/api/sar-catalog?${params}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        const scene = d.scenes?.[0];
+        if (!scene?.bbox) return;
+
+        // Try thumbnail, then Process API
+        let previewUrl = null;
+        if (scene.thumbnail_url) {
+          try {
+            const tr = await fetch(`/api/sar-catalog?action=thumbnail&url=${encodeURIComponent(scene.thumbnail_url)}`);
+            if (tr.ok) {
+              const blob = await tr.blob();
+              if (blob.size > 500) previewUrl = URL.createObjectURL(blob);
+            }
+          } catch(_) {}
+        }
+        if (!previewUrl) {
+          try {
+            const pol = (scene.polarization.includes('VV') && scene.polarization.includes('VH')) ? 'DV' : (scene.polarization.includes('VH') ? 'SV' : 'SH');
+            const pp = new URLSearchParams({ action:'preview', bbox: JSON.stringify(scene.bbox), from_date: scene.preview_from, to_date: scene.preview_to, collection:'sentinel-1-grd', orbit: scene.orbit, polarization: pol });
+            const pr = await fetch(`/api/sar-catalog?${pp}`);
+            if (pr.ok) { const blob = await pr.blob(); if (blob.size > 500) previewUrl = URL.createObjectURL(blob); }
+          } catch(_) {}
+        }
+        onSarAutoOverlay({ zone: hotspot.zone, sceneName: scene.date_label || scene.date?.slice(0,16), bbox: scene.bbox, previewUrl, footprint: scene.geometry, date: scene.date });
+      } catch(_) {}
+    }
+
+    // Stagger requests to avoid hammering the API
+    HOTSPOTS.forEach((h, i) => setTimeout(() => fetchSceneAndThumb(h), i * 2500));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchSarScenes = useCallback(async () => {
     const lat = parseFloat(sarLat), lng = parseFloat(sarLng);

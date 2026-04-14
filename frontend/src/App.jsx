@@ -15,6 +15,7 @@ function App() {
   const [panelOpen,         setPanelOpen]         = useState(true);
   const [localIntelOverlay, setLocalIntelOverlay] = useState(null);
   const [sarOverlay,        setSarOverlay]        = useState(null);
+  const [sarAutoOverlays,   setSarAutoOverlays]   = useState([]);
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 1023px)');
@@ -28,6 +29,11 @@ function App() {
   const onAnalysisRunning  = useCallback((running)  => setAnalysisRunning(running), []);
   const onLocalIntelUpdate = useCallback((overlay)  => setLocalIntelOverlay(overlay), []);
   const onSarUpdate        = useCallback((overlay)  => setSarOverlay(overlay), []);
+  const onSarAutoOverlay   = useCallback((item) => setSarAutoOverlays(prev => {
+    // Deduplicate by sceneName
+    if (prev.some(p => p.sceneName === item.sceneName)) return prev;
+    return [...prev, item];
+  }), []);
 
   return (
     <div className="app-root">
@@ -41,6 +47,7 @@ function App() {
               analysisRunning={analysisRunning}
               localIntelOverlay={localIntelOverlay}
               sarOverlay={sarOverlay}
+              sarAutoOverlays={sarAutoOverlays}
             />
           </Suspense>
         </ErrorBoundary>
@@ -71,6 +78,7 @@ function App() {
                 onAnalysisRunning={onAnalysisRunning}
                 onLocalIntelUpdate={onLocalIntelUpdate}
                 onSarUpdate={onSarUpdate}
+                onSarAutoOverlay={onSarAutoOverlay}
               />
             </Suspense>
           </ErrorBoundary>

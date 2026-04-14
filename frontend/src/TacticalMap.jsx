@@ -1423,7 +1423,7 @@ function AgentDiscussionOverlay({ discussion, agentIntel, analysisRunning }) {
 }
 
 /* ─── Main component ─────────────────────────────────────────────────────── */
-export default function TacticalMap({ predictedRoi, agentIntel, discussion, analysisRunning, localIntelOverlay, sarOverlay }) {
+export default function TacticalMap({ predictedRoi, agentIntel, discussion, analysisRunning, localIntelOverlay, sarOverlay, sarAutoOverlays }) {
   const [conflictEvents, setConflictEvents] = useState([]);
   const [quakes,         setQuakes]         = useState([]);
   const [naturalEvts,    setNaturalEvts]    = useState([]);
@@ -1911,6 +1911,32 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
               />
             )}
 
+            {/* ── SAR auto-overlays — last 48h scenes for conflict hotspots, loaded on mount ── */}
+            <Pane name="sarAutoPane" style={{ zIndex: 345 }}>
+              {(sarAutoOverlays || []).map((item, i) => {
+                if (!item.bbox) return null;
+                const b = item.bbox;
+                const bounds = [[b[1], b[0]], [b[3], b[2]]];
+                return item.previewUrl ? (
+                  <ImageOverlay
+                    key={`auto-${item.sceneName||i}`}
+                    url={item.previewUrl}
+                    bounds={bounds}
+                    opacity={0.62}
+                    zIndex={345}
+                  />
+                ) : (
+                  <GeoJSON
+                    key={`auto-fp-${item.sceneName||i}`}
+                    data={item.footprint
+                      ? { type:'Feature', geometry: item.footprint, properties:{} }
+                      : { type:'Feature', geometry:{ type:'Polygon', coordinates:[[[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]],[b[0],b[1]]]] }, properties:{} }}
+                    style={{ color:'#6366f1', weight:1, opacity:0.55, fillColor:'#6366f1', fillOpacity:0.06, dashArray:'4 4' }}
+                  />
+                );
+              })}
+            </Pane>
+
             {/* ── SAR sandwich layer — sits above tiles, below all tactical markers ── */}
             <Pane name="sarPane" style={{ zIndex: 350 }}>
               {/* Single selected scene — actual SAR image overlay */}
@@ -2210,6 +2236,23 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
                 </Tooltip>
               </CircleMarker>
             )}
+
+            {/* ── SAR auto-overlay labels ── */}
+            {(sarAutoOverlays || []).map((item, i) => {
+              if (!item.bbox) return null;
+              const b = item.bbox;
+              const center = [(b[1]+b[3])/2, (b[0]+b[2])/2];
+              return (
+                <CircleMarker key={`auto-lbl-${item.sceneName||i}`} center={center} radius={4}
+                  pathOptions={{ color:'#6366f1', weight:1.5, fillColor:'#6366f1', fillOpacity:0.9 }}>
+                  <Tooltip direction="top" offset={[0,-8]}>
+                    <span style={{fontFamily:'monospace',fontSize:9,color:'#818cf8',fontWeight:700}}>
+                      🛸 {item.zone} · {item.sceneName} {item.previewUrl ? '· IMG' : '· NO IMG'}
+                    </span>
+                  </Tooltip>
+                </CircleMarker>
+              );
+            })}
 
             {/* ── SAR marker labels — above tactical layer so tooltips are readable ── */}
             {sarOverlay?.bbox && !sarOverlay?.allScenes && (

@@ -356,9 +356,19 @@ export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscus
     setTimeout(() => { if(discussRef.current) discussRef.current.scrollTop = discussRef.current.scrollHeight; }, 50);
   };
 
-  const [autoRan, setAutoRan] = useState(false);
+  const [autoRan,       setAutoRan]       = useState(false);
+  const [nextRefreshIn, setNextRefreshIn] = useState(60);
+  const [agentCycle,    setAgentCycle]    = useState(0);   // increments each auto-run
+  const runRef   = useRef(null);    // holds latest `run` so interval can call it
+  const newsRef  = useRef([]);      // latest news without re-subscribing
 
-  /* ── Fetch live GDELT news on mount — global + India coverage ── */
+  /* ── Countdown ticker — shows seconds until next news refresh ── */
+  useEffect(()=>{
+    const t = setInterval(()=>setNextRefreshIn(p=>p<=1?60:p-1),1000);
+    return ()=>clearInterval(t);
+  },[]);
+
+  /* ── Fetch live GDELT news every 60 s — then auto-run agents ── */
   useEffect(()=>{
     const load = async ()=>{
       setNewsLoading(true);
@@ -366,8 +376,9 @@ export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscus
         const r = await fetch("/api/conflict-news?q=conflict+war+airstrike+missile+ceasefire+india+pakistan+ukraine+russia+gaza+drone+attack+explosion&timespan=7d");
         const d = await r.json();
         const articles = d.articles||[];
+        newsRef.current = articles;
         setLiveNews(articles);
-        // Auto-populate signal + run agents once when news first arrives
+        // First load — seed signal
         if(!autoRan){
           const autoSignal = articles.length>0
             ? articles.slice(0,5).map(a=>a.title).join(" | ")
@@ -375,11 +386,17 @@ export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscus
           setSignal(autoSignal);
           setAutoRan(true);
         }
+        // Every refresh — update signal with latest headlines and trigger agent cycle
+        if(autoRan && articles.length>0){
+          setSignal(articles.slice(0,5).map(a=>a.title).join(" | "));
+          setNextRefreshIn(60);
+          setAgentCycle(c=>c+1); // triggers the agent auto-run effect below
+        }
       } catch {}
       setNewsLoading(false);
     };
     load();
-    const iv = setInterval(load, 90000);
+    const iv = setInterval(load, 60000);
     return ()=>clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -577,6 +594,18 @@ ${newsCtx}`
   },[signal,liveNews,onDiscussionUpdate,onAnalysisRunning]);
 
   useEffect(()=>()=>clearInterval(timerRef.current),[]);
+
+  // Keep runRef current so the cycle effect can call latest version
+  useEffect(()=>{ runRef.current = run; },[run]);
+
+  // Auto-run 5-agent board whenever news refreshes (agentCycle increments)
+  useEffect(()=>{
+    if(agentCycle===0) return;               // skip mount
+    if(!runRef.current) return;
+    if(running||agenticRunning) return;      // already running — skip this tick
+    runRef.current();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[agentCycle]);
 
   const [activeView, setActiveView] = useState('agents'); // 'agents' | 'news' | 'footage' | 'localintel'
 
@@ -871,14 +900,16 @@ Analyze this SAR dataset and return the JSON intelligence assessment.`;
     }
   }, []);
 
-  // Auto-refresh prediction every 2 minutes when Local Intel tab is active
+  // Auto-refresh Local Intel agents + prediction every 60 s when location is set
   useEffect(() => {
-    if (activeView === 'localintel' && liLocation) {
-      fetchLiPrediction(liLocation);
-      liTimerRef.current = setInterval(() => fetchLiPrediction(liLocation), 120000);
-    }
+    if (!liLocation) return;
+    const tick = () => {
+      if (!liLoading)    fetchLocalIntel(liLocation);
+      if (!liPredLoading) fetchLiPrediction(liLocation);
+    };
+    liTimerRef.current = setInterval(tick, 60000);
     return () => clearInterval(liTimerRef.current);
-  }, [activeView, liLocation, fetchLiPrediction]);
+  }, [liLocation, fetchLocalIntel, fetchLiPrediction, liLoading, liPredLoading]);
 
   return (
     <div style={{fontFamily:"monospace",color:"#f9fafb",background:"#060a14",display:"flex",flexDirection:"column",height:"100%"}}>
@@ -901,6 +932,15 @@ Analyze this SAR dataset and return the JSON intelligence assessment.`;
           <div style={{textAlign:"right",flexShrink:0}}>
             <LiveClock/>
             <div style={{fontSize:8,fontFamily:"monospace",color:"#374151",marginTop:3,letterSpacing:"0.06em"}}>{liveNews.length} LIVE ARTICLES</div>
+            <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,justifyContent:"flex-end"}}>
+              <span style={{width:5,height:5,borderRadius:"50%",background:running||agenticRunning?"#10b981":"#374151",display:"inline-block",animation:running||agenticRunning?"pulse-bar 1s ease-in-out infinite":undefined,flexShrink:0}}/>
+              <span style={{fontSize:7,fontFamily:"monospace",color:running||agenticRunning?"#10b981":"#374151",letterSpacing:"0.1em"}}>
+                {running||agenticRunning?"AGENTS ACTIVE":"NEXT IN "+nextRefreshIn+"s"}
+              </span>
+            </div>
+            {agentCycle>0&&(
+              <div style={{fontSize:7,fontFamily:"monospace",color:"#374151",marginTop:1,letterSpacing:"0.06em"}}>CYCLE #{agentCycle}</div>
+            )}
           </div>
         </div>
       </div>
@@ -918,6 +958,21 @@ Analyze this SAR dataset and return the JSON intelligence assessment.`;
       {/* ── AGENTS VIEW ── */}
       {activeView==='agents'&&(
         <div className="sp-scroll" style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:10,padding:"12px 12px 16px"}}>
+
+          {/* Live auto-cycle status bar */}
+          <div style={{background:running||agenticRunning?"rgba(16,185,129,.07)":"rgba(6,10,20,.6)",border:`0.5px solid ${running||agenticRunning?"rgba(16,185,129,.3)":"#1f2937"}`,borderRadius:6,padding:"6px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:7}}>
+              <span style={{width:7,height:7,borderRadius:"50%",background:running||agenticRunning?"#10b981":"#374151",display:"inline-block",flexShrink:0,animation:running||agenticRunning?"blink-live 0.8s ease-in-out infinite":undefined}}/>
+              <span style={{fontSize:8,fontFamily:"monospace",color:running||agenticRunning?"#10b981":"#6b7280",letterSpacing:"0.12em"}}>
+                {running?"● 5-AGENT BOARD RUNNING":agenticRunning?"● AGENTIC RUNNING":"○ STANDBY"}
+              </span>
+              {agentCycle>0&&<span style={{fontSize:7,fontFamily:"monospace",color:"#374151",letterSpacing:"0.08em"}}>· CYCLE #{agentCycle}</span>}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:7,fontFamily:"monospace",color:"#374151",letterSpacing:"0.08em"}}>AUTO ↻ {nextRefreshIn}s</span>
+              <span style={{fontSize:7,fontFamily:"monospace",color:"#10b981",letterSpacing:"0.08em"}}>60s</span>
+            </div>
+          </div>
 
           {/* Signal input */}
           <div style={{background:"#0d1320",border:"0.5px solid #1f2937",borderRadius:8,overflow:"hidden"}}>
@@ -1095,13 +1150,17 @@ Analyze this SAR dataset and return the JSON intelligence assessment.`;
       {activeView==='news'&&(
         <div className="sp-scroll" style={{flex:1,overflowY:"auto",padding:"10px 12px",display:"flex",flexDirection:"column",gap:6}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-            <span style={{fontSize:8,fontFamily:"monospace",letterSpacing:"0.14em",color:"#10b981"}}>◉ LIVE INTEL FEED — {liveNews.length} ARTICLES</span>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:"#10b981",display:"inline-block",animation:"blink-live 1.4s ease-in-out infinite"}}/>
+              <span style={{fontSize:8,fontFamily:"monospace",letterSpacing:"0.14em",color:"#10b981"}}>LIVE INTEL FEED — {liveNews.length} ARTICLES</span>
+              <span style={{fontSize:7,fontFamily:"monospace",color:"#374151",letterSpacing:"0.08em"}}>↻ {nextRefreshIn}s</span>
+            </div>
             <button onClick={()=>{
               setNewsLoading(true);
               fetch("/api/conflict-news?q=conflict+war+airstrike+india+pakistan+ukraine+russia+gaza+missile+drone&timespan=7d")
-                .then(r=>r.json()).then(d=>setLiveNews(d.articles||[])).catch(()=>{}).finally(()=>setNewsLoading(false));
+                .then(r=>r.json()).then(d=>{ newsRef.current=d.articles||[]; setLiveNews(d.articles||[]); }).catch(()=>{}).finally(()=>setNewsLoading(false));
             }} style={{fontSize:8,fontFamily:"monospace",padding:"3px 8px",border:"0.5px solid rgba(16,185,129,.35)",borderRadius:4,background:"rgba(16,185,129,.07)",color:"#10b981",cursor:"pointer"}}>
-              {newsLoading?"…":"↻ REFRESH"}
+              {newsLoading?"…":"↻ NOW"}
             </button>
           </div>
           {newsLoading&&liveNews.length===0&&(

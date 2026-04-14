@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 // leaflet must be imported before react-leaflet to avoid TDZ in bundled output
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { MapContainer, TileLayer, Circle, CircleMarker, Popup, useMap, Tooltip, Marker, GeoJSON, Pane, ImageOverlay } from 'react-leaflet';
+import { MapContainer, TileLayer, Circle, CircleMarker, Popup, useMap, Tooltip, Marker, GeoJSON, ImageOverlay } from 'react-leaflet';
 
 /* ─── Global CSS ─────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
@@ -1911,94 +1911,79 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
               />
             )}
 
-            {/* ── SAR auto-overlays — last 48h scenes for conflict hotspots, loaded on mount ── */}
-            <Pane name="sarAutoPane" style={{ zIndex: 345 }}>
-              {(sarAutoOverlays || []).map((item, i) => {
-                if (!item.bbox) return null;
-                const b = item.bbox;
-                const bounds = [[b[1], b[0]], [b[3], b[2]]];
-                return item.previewUrl ? (
+            {/* ── SAR auto-overlays — actual images for conflict hotspots (no Pane to avoid duplicate-name errors) ── */}
+            {(sarAutoOverlays || []).map((item, i) => {
+              if (!item.bbox) return null;
+              const b = item.bbox; // [west, south, east, north]
+              const bounds = [[b[1], b[0]], [b[3], b[2]]]; // [[south,west],[north,east]]
+              if (item.previewUrl && !item.previewUrl.startsWith('error:')) {
+                return (
                   <ImageOverlay
-                    key={`auto-${item.sceneName||i}`}
+                    key={`auto-img-${item.sceneName || i}`}
                     url={item.previewUrl}
                     bounds={bounds}
-                    opacity={0.62}
-                    zIndex={345}
-                  />
-                ) : (
-                  <GeoJSON
-                    key={`auto-fp-${item.sceneName||i}`}
-                    data={item.footprint
-                      ? { type:'Feature', geometry: item.footprint, properties:{} }
-                      : { type:'Feature', geometry:{ type:'Polygon', coordinates:[[[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]],[b[0],b[1]]]] }, properties:{} }}
-                    style={{ color:'#6366f1', weight:1, opacity:0.55, fillColor:'#6366f1', fillOpacity:0.06, dashArray:'4 4' }}
+                    opacity={0.65}
+                    zIndex={220}
                   />
                 );
-              })}
-            </Pane>
+              }
+              const footprintData = item.footprint
+                ? { type:'Feature', geometry: item.footprint, properties:{} }
+                : { type:'Feature', geometry:{ type:'Polygon', coordinates:[[[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]],[b[0],b[1]]]] }, properties:{} };
+              return (
+                <GeoJSON
+                  key={`auto-fp-${item.sceneName || i}`}
+                  data={footprintData}
+                  style={{ color:'#6366f1', weight:1.5, opacity:0.7, fillColor:'#6366f1', fillOpacity:0.07, dashArray:'4 4' }}
+                />
+              );
+            })}
 
-            {/* ── SAR sandwich layer — sits above tiles, below all tactical markers ── */}
-            <Pane name="sarPane" style={{ zIndex: 350 }}>
-              {/* Single selected scene — actual SAR image overlay */}
-              {sarOverlay?.bbox && !sarOverlay?.allScenes && (() => {
-                const b = sarOverlay.bbox; // [west, south, east, north]
-                const bounds = [[b[1], b[0]], [b[3], b[2]]];
-                return (<>
-                  {sarOverlay.previewUrl && !sarOverlay.previewUrl.startsWith('error:') && (
-                    <ImageOverlay
-                      key={`sar-img-${sarOverlay.sceneName}`}
-                      url={sarOverlay.previewUrl}
-                      bounds={bounds}
-                      opacity={0.82}
-                      zIndex={350}
-                    />
-                  )}
-                  {/* Outline border always visible — faint when image is loaded, solid when loading */}
-                  {sarOverlay.footprint ? (
-                    <GeoJSON
-                      key={`sar-border-${sarOverlay.sceneName}`}
-                      data={{ type:'Feature', geometry: sarOverlay.footprint, properties:{} }}
-                      style={{ color:'#f59e0b', weight: sarOverlay.previewUrl ? 1.5 : 2.5, opacity: sarOverlay.previewUrl ? 0.5 : 0.95, fillColor:'transparent', fillOpacity:0, dashArray:'8 4' }}
-                    />
-                  ) : (
-                    <Circle
-                      center={[(b[1]+b[3])/2, (b[0]+b[2])/2]}
-                      radius={Math.abs(b[2]-b[0])*55000}
-                      pathOptions={{ color:'#f59e0b', weight: sarOverlay.previewUrl ? 1.5 : 2, fillColor:'transparent', fillOpacity:0, dashArray:'8 4' }}
-                    />
-                  )}
-                </>);
-              })()}
+            {/* ── SAR selected scene — image overlay + border ── */}
+            {sarOverlay?.bbox && !sarOverlay?.allScenes && (()=>{
+              const b = sarOverlay.bbox;
+              const bounds = [[b[1], b[0]], [b[3], b[2]]];
+              const hasImg = sarOverlay.previewUrl && !sarOverlay.previewUrl.startsWith('error:');
+              return [
+                hasImg && (
+                  <ImageOverlay
+                    key={`sar-img-${sarOverlay.sceneName}-${sarOverlay.previewUrl?.slice(-8)}`}
+                    url={sarOverlay.previewUrl}
+                    bounds={bounds}
+                    opacity={0.85}
+                    zIndex={230}
+                  />
+                ),
+                sarOverlay.footprint ? (
+                  <GeoJSON
+                    key={`sar-border-${sarOverlay.sceneName}`}
+                    data={{ type:'Feature', geometry: sarOverlay.footprint, properties:{} }}
+                    style={{ color:'#f59e0b', weight: hasImg ? 1.5 : 2.5, opacity: hasImg ? 0.5 : 0.95, fillColor:'transparent', fillOpacity:0, dashArray:'8 4' }}
+                  />
+                ) : (
+                  <Circle
+                    key={`sar-circle-${sarOverlay.sceneName}`}
+                    center={[(b[1]+b[3])/2, (b[0]+b[2])/2]}
+                    radius={Math.abs(b[2]-b[0])*55000}
+                    pathOptions={{ color:'#f59e0b', weight: hasImg ? 1.5 : 2, fillColor:'transparent', fillOpacity:0, dashArray:'8 4' }}
+                  />
+                ),
+              ].filter(Boolean);
+            })()}
 
-              {/* Analysis mode — footprint outlines for all scenes (images not bulk-loaded) */}
-              {sarOverlay?.allScenes && sarOverlay.allScenes.flatMap((scene, i) => {
-                const hue = (i * 37) % 360;
-                const color = `hsl(${hue},85%,62%)`;
-                const center = scene.bbox
-                  ? [(scene.bbox[1]+scene.bbox[3])/2, (scene.bbox[0]+scene.bbox[2])/2]
-                  : null;
-                const els = [];
-                if (scene.geometry) {
-                  els.push(
-                    <GeoJSON
-                      key={`sar-fp-${scene.id||i}`}
-                      data={{ type:'Feature', geometry: scene.geometry, properties:{} }}
-                      style={{ color, weight:2, opacity:0.9, fillColor:color, fillOpacity:0.1, dashArray:'6 3' }}
-                    />
-                  );
-                } else if (scene.bbox && center) {
-                  els.push(
-                    <Circle
-                      key={`sar-circ-${scene.id||i}`}
-                      center={center}
-                      radius={Math.abs(scene.bbox[2]-scene.bbox[0])*50000}
-                      pathOptions={{ color, weight:2, fillColor:color, fillOpacity:0.08, dashArray:'6 3' }}
-                    />
-                  );
-                }
-                return els;
-              })}
-            </Pane>
+            {/* ── SAR analysis mode — footprint outlines for all scenes ── */}
+            {sarOverlay?.allScenes && sarOverlay.allScenes.flatMap((scene, i) => {
+              const hue = (i * 37) % 360;
+              const color = `hsl(${hue},85%,62%)`;
+              const center = scene.bbox ? [(scene.bbox[1]+scene.bbox[3])/2, (scene.bbox[0]+scene.bbox[2])/2] : null;
+              const els = [];
+              if (scene.geometry) {
+                els.push(<GeoJSON key={`sar-fp-${scene.id||i}`} data={{ type:'Feature', geometry: scene.geometry, properties:{} }} style={{ color, weight:2, opacity:0.9, fillColor:color, fillOpacity:0.1, dashArray:'6 3' }} />);
+              } else if (scene.bbox && center) {
+                els.push(<Circle key={`sar-circ-${scene.id||i}`} center={center} radius={Math.abs(scene.bbox[2]-scene.bbox[0])*50000} pathOptions={{ color, weight:2, fillColor:color, fillOpacity:0.08, dashArray:'6 3' }} />);
+              }
+              return els;
+            })}
 
             <MapFlyer coords={flyCoords} />
 

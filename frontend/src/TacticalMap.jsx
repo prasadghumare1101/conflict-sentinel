@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 // leaflet must be imported before react-leaflet to avoid TDZ in bundled output
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { MapContainer, TileLayer, Circle, CircleMarker, Popup, useMap, Tooltip, Marker, GeoJSON } from 'react-leaflet';
+import { MapContainer, TileLayer, Circle, CircleMarker, Popup, useMap, Tooltip, Marker, GeoJSON, Pane } from 'react-leaflet';
 
 /* ─── Global CSS ─────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
@@ -1910,6 +1910,55 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
                 maxZoom={19} opacity={0.55}
               />
             )}
+
+            {/* ── SAR sandwich layer — sits above tiles, below all tactical markers ── */}
+            <Pane name="sarPane" style={{ zIndex: 350 }}>
+              {/* Single selected scene */}
+              {sarOverlay?.footprint && !sarOverlay?.allScenes && (
+                <GeoJSON
+                  key={`sar-${sarOverlay.sceneName}`}
+                  data={{ type:'Feature', geometry: sarOverlay.footprint, properties:{} }}
+                  style={{ color:'#f59e0b', weight:2.5, opacity:0.95, fillColor:'#f59e0b', fillOpacity:0.18, dashArray:'8 4' }}
+                />
+              )}
+              {sarOverlay?.bbox && !sarOverlay?.footprint && !sarOverlay?.allScenes && (
+                <Circle
+                  center={[(sarOverlay.bbox[1]+sarOverlay.bbox[3])/2, (sarOverlay.bbox[0]+sarOverlay.bbox[2])/2]}
+                  radius={Math.abs(sarOverlay.bbox[2]-sarOverlay.bbox[0])*55000}
+                  pathOptions={{ color:'#f59e0b', weight:2, fillColor:'#f59e0b', fillOpacity:0.14, dashArray:'8 4' }}
+                />
+              )}
+
+              {/* Analysis mode — all scene footprints */}
+              {sarOverlay?.allScenes && sarOverlay.allScenes.flatMap((scene, i) => {
+                const hue = (i * 37) % 360;
+                const color = `hsl(${hue},85%,62%)`;
+                const center = scene.bbox
+                  ? [(scene.bbox[1]+scene.bbox[3])/2, (scene.bbox[0]+scene.bbox[2])/2]
+                  : null;
+                const els = [];
+                if (scene.geometry) {
+                  els.push(
+                    <GeoJSON
+                      key={`sar-fp-${scene.id||i}`}
+                      data={{ type:'Feature', geometry: scene.geometry, properties:{} }}
+                      style={{ color, weight:2, opacity:0.9, fillColor:color, fillOpacity:0.13, dashArray:'6 3' }}
+                    />
+                  );
+                } else if (scene.bbox && center) {
+                  els.push(
+                    <Circle
+                      key={`sar-circ-${scene.id||i}`}
+                      center={center}
+                      radius={Math.abs(scene.bbox[2]-scene.bbox[0])*50000}
+                      pathOptions={{ color, weight:2, fillColor:color, fillOpacity:0.1, dashArray:'6 3' }}
+                    />
+                  );
+                }
+                return els;
+              })}
+            </Pane>
+
             <MapFlyer coords={flyCoords} />
 
             {/* ROI circles */}
@@ -2147,75 +2196,37 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
               </CircleMarker>
             )}
 
-            {/* ── SAR satellite footprint overlay — single selected scene ── */}
-            {sarOverlay?.footprint && !sarOverlay?.allScenes && (
-              <GeoJSON
-                key={`sar-${sarOverlay.sceneName}`}
-                data={{ type:'Feature', geometry: sarOverlay.footprint, properties:{} }}
-                style={{ color:'#f59e0b', weight:2.5, opacity:0.95, fillColor:'#f59e0b', fillOpacity:0.06, dashArray:'8 4' }}
-              />
-            )}
-            {sarOverlay?.bbox && !sarOverlay?.footprint && !sarOverlay?.allScenes && (
-              <Circle
-                center={[(sarOverlay.bbox[1]+sarOverlay.bbox[3])/2, (sarOverlay.bbox[0]+sarOverlay.bbox[2])/2]}
-                radius={Math.abs(sarOverlay.bbox[2]-sarOverlay.bbox[0])*55000}
-                pathOptions={{ color:'#f59e0b', weight:2, fillColor:'#f59e0b', fillOpacity:0.06, dashArray:'8 4' }}
-              />
-            )}
+            {/* ── SAR marker labels — above tactical layer so tooltips are readable ── */}
             {sarOverlay?.bbox && !sarOverlay?.allScenes && (
               <CircleMarker center={[(sarOverlay.bbox[1]+sarOverlay.bbox[3])/2, (sarOverlay.bbox[0]+sarOverlay.bbox[2])/2]} radius={7}
                 pathOptions={{ color:'#f59e0b', weight:2, fillColor:'#f59e0b', fillOpacity:0.9 }}>
                 <Tooltip permanent direction="top" offset={[0,-10]}>
-                  <span style={{fontFamily:'monospace',fontSize:10,color:'#f59e0b',fontWeight:700}}>🛸 {sarOverlay.sceneName?.substring(0,20)?.toUpperCase() || 'SAR'}</span>
+                  <span style={{fontFamily:'monospace',fontSize:10,color:'#f59e0b',fontWeight:700}}>🛸 {sarOverlay.sceneName?.substring(0,20)?.toUpperCase() || 'SAR SCENE'}</span>
                 </Tooltip>
               </CircleMarker>
             )}
-
-            {/* ── SAR analysis mode — all scene footprints ── */}
-            {sarOverlay?.allScenes && sarOverlay.allScenes.flatMap((scene, i) => {
+            {sarOverlay?.allScenes && sarOverlay.allScenes.map((scene, i) => {
               const hue = (i * 37) % 360;
               const color = `hsl(${hue},85%,62%)`;
               const center = scene.bbox
                 ? [(scene.bbox[1]+scene.bbox[3])/2, (scene.bbox[0]+scene.bbox[2])/2]
                 : null;
-              const els = [];
-              if (scene.geometry) {
-                els.push(
-                  <GeoJSON
-                    key={`sar-fp-${scene.id||i}`}
-                    data={{ type:'Feature', geometry: scene.geometry, properties:{} }}
-                    style={{ color, weight:1.5, opacity:0.85, fillColor:color, fillOpacity:0.04, dashArray:'6 3' }}
-                  />
-                );
-              } else if (scene.bbox && center) {
-                els.push(
-                  <Circle
-                    key={`sar-circ-${scene.id||i}`}
-                    center={center}
-                    radius={Math.abs(scene.bbox[2]-scene.bbox[0])*50000}
-                    pathOptions={{ color, weight:1.5, fillColor:color, fillOpacity:0.04, dashArray:'6 3' }}
-                  />
-                );
-              }
-              if (center) {
-                els.push(
-                  <CircleMarker key={`sar-cm-${scene.id||i}`} center={center} radius={5}
-                    pathOptions={{ color, weight:1.5, fillColor:color, fillOpacity:0.85 }}>
-                    <Tooltip direction="top" offset={[0,-8]}>
-                      <span style={{fontFamily:'monospace',fontSize:9,color,fontWeight:700}}>
-                        🛸 Scene {i+1} · {scene.date_label||scene.date?.slice(0,10)} · {scene.orbit}
-                      </span>
-                    </Tooltip>
-                  </CircleMarker>
-                );
-              }
-              return els;
+              return center ? (
+                <CircleMarker key={`sar-lbl-${scene.id||i}`} center={center} radius={5}
+                  pathOptions={{ color, weight:1.5, fillColor:color, fillOpacity:0.9 }}>
+                  <Tooltip direction="top" offset={[0,-8]}>
+                    <span style={{fontFamily:'monospace',fontSize:9,color,fontWeight:700}}>
+                      🛸 Scene {i+1} · {scene.date_label||scene.date?.slice(0,10)} · {scene.orbit}
+                    </span>
+                  </Tooltip>
+                </CircleMarker>
+              ) : null;
             })}
-            {sarOverlay?.allScenes && sarOverlay.location && (() => {
-              const first = sarOverlay.allScenes[0];
+            {sarOverlay?.allScenes && (() => {
+              const first = sarOverlay.allScenes.find(s => s.bbox);
               const center = first?.bbox ? [(first.bbox[1]+first.bbox[3])/2, (first.bbox[0]+first.bbox[2])/2] : null;
               return center ? (
-                <CircleMarker center={center} radius={0}>
+                <CircleMarker center={center} radius={0} pathOptions={{opacity:0,fillOpacity:0}}>
                   <Tooltip permanent direction="top" offset={[0,-14]}>
                     <span style={{fontFamily:'monospace',fontSize:9,color:'#a855f7',fontWeight:700}}>
                       ⬡ SAR ANALYSIS · {sarOverlay.allScenes.length} SCENES

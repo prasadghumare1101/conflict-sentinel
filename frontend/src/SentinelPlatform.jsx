@@ -368,8 +368,10 @@ export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscus
         const articles = d.articles||[];
         setLiveNews(articles);
         // Auto-populate signal + run agents once when news first arrives
-        if(articles.length>0 && !autoRan){
-          const autoSignal = articles.slice(0,5).map(a=>a.title).join(" | ");
+        if(!autoRan){
+          const autoSignal = articles.length>0
+            ? articles.slice(0,5).map(a=>a.title).join(" | ")
+            : "Ukraine Russia frontline Donetsk conflict | Gaza airstrike humanitarian crisis | India Pakistan border tensions | Sudan civil war RSF | Yemen Houthi Red Sea";
           setSignal(autoSignal);
           setAutoRan(true);
         }
@@ -682,6 +684,22 @@ ${newsCtx}`
   const [liSynthesis,  setLiSynthesis]  = useState(null); // combined brief
   const [liAgentsLoading, setLiAgentsLoading] = useState(false);
 
+  // Fetch all 7 local intel agents — must be defined BEFORE fetchLocalIntel (TDZ guard)
+  const fetchLiAgents = useCallback(async (loc) => {
+    if (!loc) return;
+    setLiAgentsLoading(true);
+    try {
+      const r = await fetch(`/api/local-intel?action=agents&location=${encodeURIComponent(loc)}`);
+      const d = await r.json();
+      if (d.agents) setLiAgents(d.agents);
+      if (d.synthesis) setLiSynthesis(d.synthesis);
+    } catch(e) {
+      // silently ignore
+    } finally {
+      setLiAgentsLoading(false);
+    }
+  }, []);
+
   // Fetch Local Intel (boundary + news) — Vercel serverless
   const fetchLocalIntel = useCallback(async (loc) => {
     if (!loc) return;
@@ -702,22 +720,6 @@ ${newsCtx}`
       setLiLoading(false);
     }
   }, [onLocalIntelUpdate, fetchLiAgents]);
-
-  // Fetch all 7 local intel agents
-  const fetchLiAgents = useCallback(async (loc) => {
-    if (!loc) return;
-    setLiAgentsLoading(true);
-    try {
-      const r = await fetch(`/api/local-intel?action=agents&location=${encodeURIComponent(loc)}`);
-      const d = await r.json();
-      if (d.agents) setLiAgents(d.agents);
-      if (d.synthesis) setLiSynthesis(d.synthesis);
-    } catch(e) {
-      // silently ignore
-    } finally {
-      setLiAgentsLoading(false);
-    }
-  }, []);
 
   // Fetch AI prediction — calls Vercel local-intel endpoint (uses HF LLM)
   const fetchLiPrediction = useCallback(async (loc) => {

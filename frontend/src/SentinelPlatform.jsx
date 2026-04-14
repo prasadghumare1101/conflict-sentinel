@@ -620,6 +620,9 @@ ${newsCtx}`
   const [sarTotal,      setSarTotal]      = useState(0);
   const [sarInfo,       setSarInfo]       = useState(null);
   const [sarStatus,     setSarStatus]     = useState(null);
+  const [sarAnalysis,   setSarAnalysis]   = useState(null);
+  const [sarAnalysisLoading, setSarAnalysisLoading] = useState(false);
+  const [sarAnalysisError,   setSarAnalysisError]   = useState(null);
 
   // Auto-fill lat/lng from Local Intel boundary when switching to SAR tab
   useEffect(() => {
@@ -683,6 +686,56 @@ ${newsCtx}`
       setSarPreviewLoading(false);
     }
   }, [sarCollection, onSarUpdate]);
+
+  const fetchSarAnalysis = useCallback(async () => {
+    if (!sarScenes.length) return;
+    setSarAnalysisLoading(true); setSarAnalysis(null); setSarAnalysisError(null);
+    const location = sarInfo?.location || liLocation || `${sarLat}, ${sarLng}`;
+    const scenesSummary = sarScenes.slice(0, 10).map((s, i) =>
+      `Scene ${i+1}: ${s.date_label||s.date?.slice(0,16)} | ${s.orbit} | ${s.polarization} | ${s.mode} | ${s.resolution} | Platform: ${s.platform} | Orbit#: ${s.orbit_number}`
+    ).join('\n');
+    const systemPrompt = `You are a military intelligence analyst specializing in Synthetic Aperture Radar (SAR) satellite imagery interpretation for conflict zone assessment. You analyze Sentinel-1 SAR scene metadata to infer ground activity, infrastructure changes, and tactical significance. Be precise, structured, and use OSINT-grade analytical language. Return your analysis in this exact JSON format:
+{
+  "activity_assessment": "2-3 sentences on what the SAR coverage pattern and scene frequency suggests about ground activity",
+  "temporal_pattern": "Analysis of the time distribution of scenes — gaps, clusters, revisit frequency and what they imply",
+  "orbit_analysis": "Ascending vs descending orbit breakdown and what each viewing geometry reveals about the terrain/targets",
+  "polarization_insight": "What VV/VH polarization mix tells us about surface types — buildings, vegetation, water, disturbed soil",
+  "key_indicators": ["list", "of", "up to 5 tactical indicators observable from this SAR dataset"],
+  "change_detection_potential": "Assessment of whether this scene set supports coherent change detection (InSAR/SBAS)",
+  "threat_assessment": "Brief tactical threat assessment based on scene geometry and coverage",
+  "recommended_followup": "What additional SAR queries or tasking would sharpen the picture"
+}`;
+    const userPrompt = `Perform SAR scene-wise intelligence analysis for: ${location}
+
+SEARCH PARAMETERS:
+- Timespan: ${sarTimespan}
+- Collection: ${sarCollection}
+- Polarization filter: ${sarPolariz}
+- Radius: ${sarRadius} km
+- Total scenes found: ${sarTotal}
+
+SCENE MANIFEST (${sarScenes.length} scenes):
+${scenesSummary}
+
+Analyze this SAR dataset and return the JSON intelligence assessment.`;
+    try {
+      const r = await fetch('/api/gemini-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemPrompt, userPrompt }),
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      const raw = d.text || '';
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      setSarAnalysis(JSON.parse(jsonMatch[0]));
+    } catch(e) {
+      setSarAnalysisError(e.message);
+    } finally {
+      setSarAnalysisLoading(false);
+    }
+  }, [sarScenes, sarInfo, sarTotal, liLocation, sarLat, sarLng, sarTimespan, sarCollection, sarPolariz, sarRadius]);
 
   // Fetch all 7 local intel agents — must be defined BEFORE fetchLocalIntel (TDZ guard)
   const fetchLiAgents = useCallback(async (loc) => {
@@ -1413,6 +1466,101 @@ ${newsCtx}`
                 🛸 {sarScenes.length} SCENES · {sarInfo.datetime}
               </span>
               <span style={{fontSize:8,color:"#4b5563",fontFamily:"monospace"}}>{sarInfo.location}</span>
+            </div>
+          )}
+
+          {/* SAR Scene-wise Analysis */}
+          {sarScenes.length>0&&(
+            <div style={{background:"#0d1320",border:"0.5px solid rgba(168,85,247,.25)",borderRadius:8,overflow:"hidden"}}>
+              <div style={{padding:"7px 12px",borderBottom:"0.5px solid rgba(168,85,247,.15)",background:"rgba(168,85,247,.05)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:8,fontFamily:"monospace",letterSpacing:"0.14em",color:"#a855f7"}}>⬡ SAR SCENE-WISE ANALYSIS</div>
+                <button onClick={fetchSarAnalysis} disabled={sarAnalysisLoading}
+                  style={{fontSize:8,padding:"3px 10px",background:sarAnalysisLoading?"rgba(168,85,247,.06)":"rgba(168,85,247,.14)",border:"0.5px solid rgba(168,85,247,.45)",borderRadius:4,color:"#a855f7",cursor:"pointer",fontFamily:"monospace",fontWeight:700,letterSpacing:"0.08em"}}>
+                  {sarAnalysisLoading?"⬡ ANALYSING…":"⬡ ANALYSE SCENES"}
+                </button>
+              </div>
+
+              {sarAnalysisError&&(
+                <div style={{padding:"8px 12px",fontSize:9,color:"#ef4444",fontFamily:"monospace"}}>⚠ {sarAnalysisError}</div>
+              )}
+
+              {sarAnalysisLoading&&!sarAnalysis&&(
+                <div style={{padding:"16px 12px",textAlign:"center"}}>
+                  <div style={{fontSize:9,color:"#a855f7",fontFamily:"monospace",animation:"pulse-bar 1.5s ease-in-out infinite",marginBottom:4}}>Processing {sarScenes.length} SAR scenes…</div>
+                  <div style={{fontSize:8,color:"#4b5563",fontFamily:"monospace"}}>Kimi-K2.5 · SAR Intelligence Engine</div>
+                </div>
+              )}
+
+              {sarAnalysis&&!sarAnalysisLoading&&(
+                <div style={{padding:"12px"}}>
+
+                  {/* Activity + Temporal row */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                    <div style={{background:"#111827",border:"0.5px solid #1f2937",borderRadius:6,padding:"8px 10px"}}>
+                      <div style={{fontSize:7,color:"#a855f7",fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:4}}>ACTIVITY ASSESSMENT</div>
+                      <div style={{fontSize:9,color:"#e5e7eb",fontFamily:"monospace",lineHeight:1.6}}>{sarAnalysis.activity_assessment}</div>
+                    </div>
+                    <div style={{background:"#111827",border:"0.5px solid #1f2937",borderRadius:6,padding:"8px 10px"}}>
+                      <div style={{fontSize:7,color:"#6366f1",fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:4}}>TEMPORAL PATTERN</div>
+                      <div style={{fontSize:9,color:"#e5e7eb",fontFamily:"monospace",lineHeight:1.6}}>{sarAnalysis.temporal_pattern}</div>
+                    </div>
+                  </div>
+
+                  {/* Orbit + Polarization row */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                    <div style={{background:"#111827",border:"0.5px solid #1f2937",borderRadius:6,padding:"8px 10px"}}>
+                      <div style={{fontSize:7,color:"#3b82f6",fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:4}}>ORBIT ANALYSIS</div>
+                      <div style={{fontSize:9,color:"#e5e7eb",fontFamily:"monospace",lineHeight:1.6}}>{sarAnalysis.orbit_analysis}</div>
+                    </div>
+                    <div style={{background:"#111827",border:"0.5px solid #1f2937",borderRadius:6,padding:"8px 10px"}}>
+                      <div style={{fontSize:7,color:"#10b981",fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:4}}>POLARIZATION INSIGHT</div>
+                      <div style={{fontSize:9,color:"#e5e7eb",fontFamily:"monospace",lineHeight:1.6}}>{sarAnalysis.polarization_insight}</div>
+                    </div>
+                  </div>
+
+                  {/* Key Indicators */}
+                  {sarAnalysis.key_indicators?.length>0&&(
+                    <div style={{background:"#111827",border:"0.5px solid rgba(251,191,36,.2)",borderRadius:6,padding:"8px 10px",marginBottom:8}}>
+                      <div style={{fontSize:7,color:"#f59e0b",fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:6}}>KEY TACTICAL INDICATORS</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                        {sarAnalysis.key_indicators.map((ind,i)=>(
+                          <div key={i} style={{display:"flex",gap:6,alignItems:"flex-start"}}>
+                            <span style={{fontSize:7,color:"#f59e0b",fontFamily:"monospace",marginTop:1,flexShrink:0}}>▸</span>
+                            <span style={{fontSize:9,color:"#e5e7eb",fontFamily:"monospace",lineHeight:1.5}}>{ind}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Change detection + Threat row */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                    <div style={{background:"#111827",border:"0.5px solid rgba(239,68,68,.2)",borderRadius:6,padding:"8px 10px"}}>
+                      <div style={{fontSize:7,color:"#ef4444",fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:4}}>THREAT ASSESSMENT</div>
+                      <div style={{fontSize:9,color:"#e5e7eb",fontFamily:"monospace",lineHeight:1.6}}>{sarAnalysis.threat_assessment}</div>
+                    </div>
+                    <div style={{background:"#111827",border:"0.5px solid #1f2937",borderRadius:6,padding:"8px 10px"}}>
+                      <div style={{fontSize:7,color:"#6b7280",fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:4}}>CHANGE DETECTION POTENTIAL</div>
+                      <div style={{fontSize:9,color:"#e5e7eb",fontFamily:"monospace",lineHeight:1.6}}>{sarAnalysis.change_detection_potential}</div>
+                    </div>
+                  </div>
+
+                  {/* Recommended followup */}
+                  {sarAnalysis.recommended_followup&&(
+                    <div style={{background:"rgba(16,185,129,.05)",border:"0.5px solid rgba(16,185,129,.2)",borderRadius:6,padding:"8px 10px"}}>
+                      <div style={{fontSize:7,color:"#10b981",fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:4}}>RECOMMENDED FOLLOWUP TASKING</div>
+                      <div style={{fontSize:9,color:"#d1fae5",fontFamily:"monospace",lineHeight:1.6}}>{sarAnalysis.recommended_followup}</div>
+                    </div>
+                  )}
+
+                </div>
+              )}
+
+              {!sarAnalysis&&!sarAnalysisLoading&&!sarAnalysisError&&(
+                <div style={{padding:"10px 12px",fontSize:9,color:"#4b5563",fontFamily:"monospace",lineHeight:1.7}}>
+                  AI-powered scene-wise analysis: orbit patterns · polarization signatures · temporal change detection · tactical threat assessment
+                </div>
+              )}
             </div>
           )}
 

@@ -1918,7 +1918,7 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
                 const b = sarOverlay.bbox; // [west, south, east, north]
                 const bounds = [[b[1], b[0]], [b[3], b[2]]];
                 return (<>
-                  {sarOverlay.previewUrl && (
+                  {sarOverlay.previewUrl && !sarOverlay.previewUrl.startsWith('error:') && (
                     <ImageOverlay
                       key={`sar-img-${sarOverlay.sceneName}`}
                       url={sarOverlay.previewUrl}

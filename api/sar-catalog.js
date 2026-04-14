@@ -145,6 +145,14 @@ module.exports = async function handler(req, res) {
       const scenes = features.map(f => {
         const p  = f.properties || {};
         const dt = new Date(p.datetime || 0);
+        // Extract thumbnail/quicklook from STAC assets — these are always available
+        const assets = f.assets || {};
+        const thumbnailUrl =
+          assets.thumbnail?.href ||
+          assets.overview?.href  ||
+          assets.quicklook?.href ||
+          assets.preview?.href   ||
+          null;
         return {
           id:           f.id,
           geometry:     f.geometry,
@@ -160,6 +168,7 @@ module.exports = async function handler(req, res) {
           preview_from: new Date(dt - 12*3600*1000).toISOString().slice(0,19)+'Z',
           preview_to:   new Date(dt + 12*3600*1000).toISOString().slice(0,19)+'Z',
           bbox,
+          thumbnail_url:  thumbnailUrl,
           copernicus_url: `https://browser.dataspace.copernicus.eu/?zoom=10&lat=${parseFloat(lat).toFixed(4)}&lng=${parseFloat(lng).toFixed(4)}&themeId=SAR`,
         };
       });
@@ -232,6 +241,21 @@ module.exports = async function handler(req, res) {
       res.setHeader('Content-Type',  'image/jpeg');
       res.setHeader('Cache-Control', 'public, max-age=86400');
       return res.send(Buffer.from(procResp.data));
+    }
+
+    /* ══ action: thumbnail — proxy authenticated thumbnail from STAC assets ═ */
+    if (action === 'thumbnail') {
+      const { url: thumbUrl } = body;
+      if (!thumbUrl) return res.status(400).json({ error: 'url required' });
+      const thumbResp = await axios.get(thumbUrl, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        responseType: 'arraybuffer',
+        timeout: 20000,
+      });
+      const ct = thumbResp.headers['content-type'] || 'image/jpeg';
+      res.setHeader('Content-Type', ct);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(Buffer.from(thumbResp.data));
     }
 
     /* ══ action: status ═══════════════════════════════════════════════════ */

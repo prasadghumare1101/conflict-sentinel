@@ -666,6 +666,27 @@ ${newsCtx}`
     if (!scene) return;
     setSarSelected(scene); setSarPreviewUrl(null); setSarPreviewLoading(true);
     if (onSarUpdate) onSarUpdate({ footprint: scene.geometry, bbox: scene.bbox, sceneName: scene.date_label, date: scene.date });
+
+    const pushUrl = (url) => {
+      setSarPreviewUrl(url);
+      if (onSarUpdate) onSarUpdate({
+        footprint: scene.geometry, bbox: scene.bbox,
+        sceneName: scene.date_label, date: scene.date, previewUrl: url,
+      });
+    };
+
+    // Step 1 — try the STAC thumbnail (fast, auth-proxied, always available)
+    if (scene.thumbnail_url) {
+      try {
+        const tr = await fetch(`/api/sar-catalog?action=thumbnail&url=${encodeURIComponent(scene.thumbnail_url)}`);
+        if (tr.ok) {
+          const blob = await tr.blob();
+          if (blob.size > 500) { pushUrl(URL.createObjectURL(blob)); setSarPreviewLoading(false); return; }
+        }
+      } catch(_) { /* fall through to Process API */ }
+    }
+
+    // Step 2 — try Copernicus SentinelHub Process API (false-colour VV/VH)
     try {
       const params = new URLSearchParams({
         action:      'preview',
@@ -677,20 +698,17 @@ ${newsCtx}`
         polarization:(scene.polarization.includes('VV') && scene.polarization.includes('VH')) ? 'DV' : (scene.polarization.includes('VH') ? 'SV' : 'SH'),
       });
       const r = await fetch(`/api/sar-catalog?${params}`);
-      if (!r.ok) throw new Error(`Preview error: ${r.status}`);
+      if (!r.ok) {
+        // Try to extract error detail from JSON body
+        let detail = `HTTP ${r.status}`;
+        try { const j = await r.json(); detail = j.details || j.error || detail; } catch(_) {}
+        throw new Error(detail);
+      }
       const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      setSarPreviewUrl(url);
-      // Push the actual image URL to the map so it can render it as an ImageOverlay
-      if (onSarUpdate) onSarUpdate({
-        footprint: scene.geometry,
-        bbox:      scene.bbox,
-        sceneName: scene.date_label,
-        date:      scene.date,
-        previewUrl: url,
-      });
+      if (blob.size < 500) throw new Error('Empty image returned by Process API');
+      pushUrl(URL.createObjectURL(blob));
     } catch(e) {
-      setSarPreviewUrl(null);
+      setSarPreviewUrl('error:' + e.message);
     } finally {
       setSarPreviewLoading(false);
     }
@@ -1603,22 +1621,28 @@ Analyze this SAR dataset and return the JSON intelligence assessment.`;
                   <div style={{borderRadius:6,overflow:"hidden",background:"#0a0f1a",border:"0.5px solid #374151",marginBottom:8,minHeight:180,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
                     {sarPreviewLoading&&(
                       <div style={{textAlign:"center"}}>
-                        <div style={{fontSize:9,color:"#4b5563",fontFamily:"monospace",marginBottom:4,animation:"pulse-bar 1.5s ease-in-out infinite"}}>Generating SAR preview…</div>
-                        <div style={{fontSize:8,color:"#374151",fontFamily:"monospace"}}>Process API · SentinelHub</div>
+                        <div style={{fontSize:9,color:"#4b5563",fontFamily:"monospace",marginBottom:4,animation:"pulse-bar 1.5s ease-in-out infinite"}}>Loading SAR image…</div>
+                        <div style={{fontSize:8,color:"#374151",fontFamily:"monospace"}}>Trying STAC thumbnail → Process API</div>
                       </div>
                     )}
-                    {sarPreviewUrl&&!sarPreviewLoading&&(
+                    {sarPreviewUrl&&!sarPreviewUrl.startsWith('error:')&&!sarPreviewLoading&&(
                       <img src={sarPreviewUrl} alt="SAR Preview" style={{width:"100%",display:"block",borderRadius:4}}/>
+                    )}
+                    {sarPreviewUrl?.startsWith('error:')&&!sarPreviewLoading&&(
+                      <div style={{textAlign:"center",padding:"16px 12px"}}>
+                        <div style={{fontSize:9,color:"#ef4444",fontFamily:"monospace",marginBottom:4}}>⚠ Image load failed</div>
+                        <div style={{fontSize:8,color:"#6b7280",fontFamily:"monospace",lineHeight:1.6,wordBreak:"break-word"}}>{sarPreviewUrl.slice(6)}</div>
+                      </div>
                     )}
                     {!sarPreviewUrl&&!sarPreviewLoading&&(
                       <div style={{textAlign:"center",padding:"20px 0"}}>
-                        <div style={{fontSize:9,color:"#374151",fontFamily:"monospace"}}>Preview unavailable.</div>
-                        <div style={{fontSize:8,color:"#374151",fontFamily:"monospace",marginTop:3}}>No data in this scene's time window.</div>
+                        <div style={{fontSize:9,color:"#374151",fontFamily:"monospace"}}>No image returned.</div>
+                        <div style={{fontSize:8,color:"#374151",fontFamily:"monospace",marginTop:3}}>Scene may have no data in this time window.</div>
                       </div>
                     )}
-                    {sarPreviewUrl&&(
+                    {sarPreviewUrl&&!sarPreviewUrl.startsWith('error:')&&(
                       <div style={{position:"absolute",bottom:6,right:6,fontSize:8,color:"rgba(16,185,129,.7)",fontFamily:"monospace",background:"rgba(0,0,0,.6)",padding:"2px 6px",borderRadius:3}}>
-                        VV/VH FALSE-COLOUR
+                        SAR · VV/VH
                       </div>
                     )}
                   </div>

@@ -145,14 +145,20 @@ module.exports = async function handler(req, res) {
       const scenes = features.map(f => {
         const p  = f.properties || {};
         const dt = new Date(p.datetime || 0);
-        // Extract thumbnail/quicklook from STAC assets — these are always available
+        // Extract thumbnail/quicklook from STAC assets
         const assets = f.assets || {};
+        // Copernicus DataSpace STAC uses 'THUMBNAIL' (uppercase) key for Sentinel-1
         const thumbnailUrl =
-          assets.thumbnail?.href ||
-          assets.overview?.href  ||
-          assets.quicklook?.href ||
-          assets.preview?.href   ||
+          assets.THUMBNAIL?.href    ||
+          assets.thumbnail?.href    ||
+          assets.QUICKLOOK?.href    ||
+          assets.quicklook?.href    ||
+          assets.overview?.href     ||
+          assets.preview?.href      ||
+          // Fallback: find any asset with 'thumbnail' or 'preview' in the role
+          Object.values(assets).find(a => a?.roles?.includes('thumbnail') || a?.roles?.includes('overview'))?.href ||
           null;
+        const assetKeys = Object.keys(assets); // for debugging
         return {
           id:           f.id,
           geometry:     f.geometry,
@@ -164,11 +170,12 @@ module.exports = async function handler(req, res) {
           mode:         p['s1:instrument_mode'] || 'IW',
           resolution:   p['s1:resolution'] || 'HIGH',
           orbit_number: p['sat:absolute_orbit'] || p['s1:absolute_orbit'] || 0,
-          // date range for preview generation: ±12h around acquisition
-          preview_from: new Date(dt - 12*3600*1000).toISOString().slice(0,19)+'Z',
-          preview_to:   new Date(dt + 12*3600*1000).toISOString().slice(0,19)+'Z',
+          // date range for preview: scene date ±24h (wide window for Process API)
+          preview_from: new Date(dt - 24*3600*1000).toISOString().slice(0,10)+'T00:00:00Z',
+          preview_to:   new Date(dt + 24*3600*1000).toISOString().slice(0,10)+'T23:59:59Z',
           bbox,
           thumbnail_url:  thumbnailUrl,
+          _asset_keys:    assetKeys,   // debug: remove once thumbnail is confirmed
           copernicus_url: `https://browser.dataspace.copernicus.eu/?zoom=10&lat=${parseFloat(lat).toFixed(4)}&lng=${parseFloat(lng).toFixed(4)}&themeId=SAR`,
         };
       });

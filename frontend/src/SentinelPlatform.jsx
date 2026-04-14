@@ -324,7 +324,7 @@ function LiveFootagePanel(){
 }
 
 /* ─── Main Platform ─────────────────────────────────────────────────────── */
-export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscussionUpdate,onAnalysisRunning,onLocalIntelUpdate,onSarUpdate,onSarAutoOverlay}){
+export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscussionUpdate,onAnalysisRunning,onLocalIntelUpdate,onSarUpdate,onSarAutoOverlay,mapSearchTarget}){
   const [signal,         setSignal]         = useState("");
   const [running,        setRunning]        = useState(false);
   const [agenticRunning, setAgenticRunning] = useState(false);
@@ -442,8 +442,9 @@ export default function SentinelPlatform({setPredictedRoi,setAgentIntel,onDiscus
     finally { setAgenticRunning(false); }
   };
 
-  const run = useCallback(async ()=>{
-    if(!signal.trim()) return;
+  const run = useCallback(async (overrideSignal)=>{
+    const sig = (typeof overrideSignal === 'string' ? overrideSignal : signal).trim();
+    if(!sig) return;
     setRunning(true);
     if(onAnalysisRunning) onAnalysisRunning(true);
     setError(null);
@@ -478,7 +479,7 @@ STRICT RULES:
 (3) Each indicator must be tagged: e.g. "PRE-KINETIC: TROOP BUILDUP [reuters]", "INFO-OPS: STATE MEDIA BLACKOUT [ndtv]".
 (4) Include Indian subcontinent, Middle East, Eastern Europe, and Africa events if present in news.
 (5) "liveNewsUsed" = exact count of headlines you referenced.`,
-        `SIGNAL: ${signal}\n\n${newsCtx}`
+        `SIGNAL: ${sig}\n\n${newsCtx}`
       );
       const osintData = parseJSON(osintRaw)||{streams:[{source:"ALL",finding:osintRaw}],indicators:[],liveNewsUsed:0};
       setAgent("osint","done",osintData,elap());
@@ -496,7 +497,7 @@ STRICT RULES:
 (3) patterns must be grounded in actual reported events — label format: "PATTERN-TYPE: description [source]".
 (4) Apply DIME/PMESII-PT framework to classify the phase: Shaping / Preparation / Execution / Exploitation.
 (5) Include India-Pakistan, Gaza, Ukraine, Sudan, Myanmar if present in news feed.`,
-        `SIGNAL: ${signal}\n\nOSINT: ${JSON.stringify(osintData)}\n\n${newsCtx}`
+        `SIGNAL: ${sig}\n\nOSINT: ${JSON.stringify(osintData)}\n\n${newsCtx}`
       );
       const threatData = parseJSON(threatRaw)||{score:70,level:"HIGH",summary:threatRaw,patterns:[]};
       setAgent("threat","done",threatData,elap());
@@ -514,7 +515,7 @@ STRICT RULES:
 (3) activeTactics: list 4-6 tactics CONFIRMED active based on news evidence — do not speculate beyond reported facts.
 (4) redTeamDecision: adversary's most likely next step based on their recent CONFIRMED actions in the news.
 (5) nextMoveProjection: specific predicted action within 72 hours, grounded in the threat level and news evidence. State confidence level (low/medium/high).`,
-        `SIGNAL: ${signal}\nTHREAT: ${threatData.level} (${threatData.score}/100)\nPATTERNS: ${threatData.patterns?.join(", ")}\n\n${newsCtx}`
+        `SIGNAL: ${sig}\nTHREAT: ${threatData.level} (${threatData.score}/100)\nPATTERNS: ${threatData.patterns?.join(", ")}\n\n${newsCtx}`
       );
       const scenarioData = parseJSON(scenarioRaw)||{scenarios:[]};
       setAgent("scenario","done",scenarioData,elap());
@@ -532,7 +533,7 @@ STRICT RULES:
 (2) summary must mention specific countries/regions from the live news feed with their approximate reported casualty/displacement figures.
 (3) mitigationPriorities: 3-4 actionable items naming specific real organizations (UN OCHA, ICRC, WFP, MSF) relevant to the reported crisis.
 (4) Apply IHL: proportionality, distinction, precaution principles to assess compliance issues from reported events.`,
-        `SIGNAL: ${signal}\nTHREAT: ${threatData.level}\nSCENARIOS: ${JSON.stringify(scenarioData.scenarios?.map(s=>s.name))}\n\n${newsCtx}`
+        `SIGNAL: ${sig}\nTHREAT: ${threatData.level}\nSCENARIOS: ${JSON.stringify(scenarioData.scenarios?.map(s=>s.name))}\n\n${newsCtx}`
       );
       const civilianData = parseJSON(civilianRaw)||{populationAtRisk:"Unknown",displacementRisk:"Unknown",infrastructureRisk:"Unknown",summary:civilianRaw,mitigationPriorities:[]};
       setAgent("civilian","done",civilianData,elap());
@@ -560,7 +561,7 @@ STRICT RULES:
 (4) windowOfAction: specific timeframe (e.g. "Next 24-72 hours") with reasoning from the evidence.
 (5) commanderNote: address adversary psychology using ONLY evidence from the live news. Do not speculate beyond reported facts.
 (6) classification: one of RESTRICTED / CONFIDENTIAL / SECRET — based on sensitivity of reported events.`,
-        `SIGNAL: ${signal}
+        `SIGNAL: ${sig}
 UTC: ${nowISO()}
 
 BOARD INPUT [OSINT-OFFICER]: ${JSON.stringify(osintData)}
@@ -910,6 +911,75 @@ Analyze this SAR dataset and return the JSON intelligence assessment.`;
     liTimerRef.current = setInterval(tick, 60000);
     return () => clearInterval(liTimerRef.current);
   }, [liLocation, fetchLocalIntel, fetchLiPrediction, liLoading, liPredLoading]);
+
+  // ── Auto 360° analysis triggered by map search ──────────────────────────
+  useEffect(() => {
+    if (!mapSearchTarget) return;
+    const { lat, lng, name } = mapSearchTarget;
+    if (!name || isNaN(lat) || isNaN(lng)) return;
+
+    // 1. Switch to agents tab
+    setActiveView('agents');
+    setSignal(name);
+    setLiInput(name);
+
+    // 2. Fetch local intel (news + boundary)
+    fetchLocalIntel(name);
+    fetchLiPrediction(name);
+
+    // 3. SAR search directly (bypass state-async issue)
+    const doSarSearch = async () => {
+      setSarLoading(true); setSarError(null); setSarScenes([]);
+      setSarLat(String(lat)); setSarLng(String(lng));
+      try {
+        const params = new URLSearchParams({
+          action:'search', lat, lng, radius_km:'80',
+          timespan:'14d', collection:'sentinel-1-grd', limit:'5', location: name,
+        });
+        const r = await fetch(`/api/sar-catalog?${params}`);
+        const d = await r.json();
+        if (!d.error && d.scenes?.length) {
+          setSarScenes(d.scenes);
+          setSarTotal(d.total || d.scenes.length);
+          setSarInfo({ location: name, datetime: d.datetime });
+          // Auto-load and overlay first 2 scenes
+          for (let i = 0; i < Math.min(2, d.scenes.length); i++) {
+            const scene = d.scenes[i];
+            if (!scene?.bbox) continue;
+            if (scene.thumbnail_url) {
+              try {
+                const tr = await fetch(`/api/sar-catalog?action=thumbnail&url=${encodeURIComponent(scene.thumbnail_url)}`);
+                if (tr.ok) {
+                  const blob = await tr.blob();
+                  if (blob.size > 500) {
+                    const url = URL.createObjectURL(blob);
+                    if (onSarAutoOverlay) onSarAutoOverlay({ zone: name, sceneName: scene.date_label||scene.date?.slice(0,16), bbox: scene.bbox, previewUrl: url, footprint: scene.geometry, date: scene.date });
+                    if (i === 0 && onSarUpdate) onSarUpdate({ footprint: scene.geometry, bbox: scene.bbox, sceneName: scene.date_label, date: scene.date, previewUrl: url });
+                    continue;
+                  }
+                }
+              } catch(_) {}
+            }
+            // No thumbnail — push footprint-only overlay
+            if (onSarAutoOverlay) onSarAutoOverlay({ zone: name, sceneName: scene.date_label||scene.date?.slice(0,16), bbox: scene.bbox, previewUrl: null, footprint: scene.geometry, date: scene.date });
+          }
+        } else if (d.error) {
+          setSarError(d.error);
+        }
+      } catch(e) { setSarError(e.message); }
+      finally    { setSarLoading(false); }
+    };
+    doSarSearch();
+
+    // 4. Run 5-agent board with location as signal (delay 800ms to let state settle)
+    const t = setTimeout(() => {
+      if (!running && !agenticRunning && runRef.current) {
+        runRef.current(name);
+      }
+    }, 800);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapSearchTarget]);
 
   return (
     <div style={{fontFamily:"monospace",color:"#f9fafb",background:"#060a14",display:"flex",flexDirection:"column",height:"100%"}}>

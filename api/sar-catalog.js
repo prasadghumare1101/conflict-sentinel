@@ -125,13 +125,9 @@ module.exports = async function handler(req, res) {
         datetime:    `${from}/${to}`,
         collections: [collection],
         limit:       Math.min(parseInt(limit) || 10, 20),
+        // Note: CQL2 polarization filter removed — SentinelHub STAC returns 400 for it.
+        // Filter by polarization client-side below instead.
       };
-
-      // Polarization CQL2 filter (only if a specific one is requested)
-      if (polarization && polarization !== 'ALL') {
-        searchBody.filter      = { op: 'like', args: [{ property: 's1:polarization' }, `%${polarization}%`] };
-        searchBody['filter-lang'] = 'cql2-json';
-      }
 
       const catResp = await axios.post(CATALOG_URL, searchBody, {
         headers: {
@@ -141,7 +137,14 @@ module.exports = async function handler(req, res) {
         timeout: 30000,
       });
 
-      const features = catResp.data?.features || [];
+      let features = catResp.data?.features || [];
+      // Client-side polarization filter (avoids CQL2 400 error)
+      if (polarization && polarization !== 'ALL') {
+        features = features.filter(f => {
+          const pol = (f.properties?.['s1:polarization'] || '').toUpperCase();
+          return pol.includes(polarization.toUpperCase());
+        });
+      }
 
       // Batch-fetch QUICKLOOK URLs from Copernicus OData API (public, no auth needed)
       // OData returns the actual DownloadLink for the QUICKLOOK asset per product

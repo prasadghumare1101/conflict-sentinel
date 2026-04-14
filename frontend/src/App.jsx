@@ -16,6 +16,7 @@ function App() {
   const [localIntelOverlay, setLocalIntelOverlay] = useState(null);
   const [sarOverlay,        setSarOverlay]        = useState(null);
   const [sarAutoOverlays,   setSarAutoOverlays]   = useState([]);
+  const [mapSearchTarget,   setMapSearchTarget]   = useState(null); // {lat,lng,name}
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 1023px)');
@@ -29,6 +30,7 @@ function App() {
   const onAnalysisRunning  = useCallback((running)  => setAnalysisRunning(running), []);
   const onLocalIntelUpdate = useCallback((overlay)  => setLocalIntelOverlay(overlay), []);
   const onSarUpdate        = useCallback((overlay)  => setSarOverlay(overlay), []);
+  const onMapSearch        = useCallback((target) => setMapSearchTarget(target), []);
   const onSarAutoOverlay   = useCallback((item) => setSarAutoOverlays(prev => {
     // Deduplicate by sceneName
     if (prev.some(p => p.sceneName === item.sceneName)) return prev;
@@ -48,6 +50,8 @@ function App() {
               localIntelOverlay={localIntelOverlay}
               sarOverlay={sarOverlay}
               sarAutoOverlays={sarAutoOverlays}
+              onMapSearch={onMapSearch}
+              mapSearchTarget={mapSearchTarget}
             />
           </Suspense>
         </ErrorBoundary>
@@ -79,6 +83,7 @@ function App() {
                 onLocalIntelUpdate={onLocalIntelUpdate}
                 onSarUpdate={onSarUpdate}
                 onSarAutoOverlay={onSarAutoOverlay}
+                mapSearchTarget={mapSearchTarget}
               />
             </Suspense>
           </ErrorBoundary>

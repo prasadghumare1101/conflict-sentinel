@@ -303,6 +303,20 @@ function MapFlyer({ coords }) {
   useEffect(() => { if (coords?.lat && coords?.lng) map.flyTo([coords.lat, coords.lng], 9, { animate:true, duration:2.5 }); }, [coords, map]);
   return null;
 }
+
+// Dedicated flyer for map search result — flies to boundary lat/lng at closer zoom
+function MapSearchFlyer({ target }) {
+  const map = useMap();
+  const prev = useRef(null);
+  useEffect(() => {
+    if (!target?.lat || !target?.lng) return;
+    const key = `${target.lat},${target.lng}`;
+    if (prev.current === key) return;
+    prev.current = key;
+    map.flyTo([target.lat, target.lng], target.zoom || 10, { animate: true, duration: 2.0 });
+  }, [target, map]);
+  return null;
+}
 /* ─── Bearing between two coords ────────────────────────────────────────── */
 function bearing(lat1, lng1, lat2, lng2) {
   const dL = (lng2 - lng1) * Math.PI / 180;
@@ -1080,6 +1094,7 @@ const ALL_LAYERS = [
   { id:'humanitarian', label:'Humanitarian', icon:'🏥', color:'#f97316' },
   { id:'satellite',    label:'Satellite',    icon:'🛰️', color:'#10b981' },
   { id:'agentswarms',  label:'Agent Swarms', icon:'⬡', color:'#3b82f6' },
+  { id:'movement',     label:'Population',  icon:'🚶', color:'#f97316' },
 ];
 
 /* ─── Tactical graph sub-components ─────────────────────────────────────── */
@@ -1197,6 +1212,339 @@ function ThreatPatternRadar({ patterns = [] }) {
       ))}
       <circle cx={cx} cy={cy} r="2.5" fill="#f97316"/>
     </svg>
+  );
+}
+
+/* ─── Human Movement Layer — animated IDP/refugee flows ─────────────────── */
+// Population displacement flows: conflict origin → nearest refuge zone
+const MOVEMENT_FLOWS = [
+  { id:'mf-01', from:[31.5,34.4], to:[31.9,35.2], label:'Gaza → West Bank', displaced:'2.2M', color:'#f97316' },
+  { id:'mf-02', from:[48.0,37.8], to:[50.4,30.5], label:'Donetsk → Kyiv',   displaced:'4.1M', color:'#ef4444' },
+  { id:'mf-03', from:[15.5,32.5], to:[15.6,32.5], label:'Khartoum → Chad',  displaced:'7.7M', color:'#f59e0b' },
+  { id:'mf-04', from:[19.7,96.1], to:[27.5,89.6], label:'Myanmar → Thailand',displaced:'900k', color:'#a855f7' },
+  { id:'mf-05', from:[13.5,45.0], to:[12.1,43.1], label:'Yemen → Djibouti', displaced:'4.3M', color:'#3b82f6' },
+  { id:'mf-06', from:[14.5,-2.0], to:[12.4,-1.5], label:'Sahel → S. Coast', displaced:'3.5M', color:'#10b981' },
+  { id:'mf-07', from:[33.5,35.9], to:[33.9,35.5], label:'S. Leb. → Beirut',  displaced:'1.2M', color:'#f97316' },
+  { id:'mf-08', from:[34.5,74.0], to:[33.7,73.0], label:'LoC → Pak. Punjab', displaced:'450k', color:'#06b6d4' },
+];
+
+function HumanMovementLayer({ active }) {
+  const map = useMap();
+  const state = useRef([]);
+  const rafId = useRef(null);
+
+  useEffect(() => {
+    // Cleanup
+    state.current.forEach(s => { s.dot?.remove(); s.line?.remove(); s.label?.remove(); });
+    state.current = [];
+    cancelAnimationFrame(rafId.current);
+    if (!active) return;
+
+    MOVEMENT_FLOWS.forEach(flow => {
+      const [fLat,fLng] = flow.from, [tLat,tLng] = flow.to;
+      // Static dashed polyline
+      const line = L.polyline([[fLat,fLng],[tLat,tLng]], {
+        color: flow.color, weight: 1.5, opacity: 0.55, dashArray: '6 6',
+      }).addTo(map);
+
+      // Origin pulse marker
+      const originIcon = L.divIcon({
+        className:'',
+        html:`<div style="width:10px;height:10px;border-radius:50%;background:${flow.color};box-shadow:0 0 8px ${flow.color};animation:apt-pulse 1.5s ease-in-out infinite"></div>`,
+        iconSize:[10,10], iconAnchor:[5,5],
+      });
+      const originM = L.marker([fLat,fLng], { icon: originIcon, interactive:false }).addTo(map);
+
+      // Moving dot along line
+      const dotIcon = L.divIcon({
+        className:'',
+        html:`<div style="width:7px;height:7px;border-radius:50%;background:${flow.color};opacity:0.9;box-shadow:0 0 5px ${flow.color}"></div>`,
+        iconSize:[7,7], iconAnchor:[3.5,3.5],
+      });
+      const dot = L.marker([fLat,fLng], { icon: dotIcon, interactive:false, zIndexOffset:600 }).addTo(map);
+
+      // Label at midpoint
+      const midLat = (fLat+tLat)/2, midLng = (fLng+tLng)/2;
+      const labelIcon = L.divIcon({
+        className:'',
+        html:`<div style="background:rgba(0,0,0,0.75);border:0.5px solid ${flow.color}66;border-radius:4px;padding:2px 6px;font-family:monospace;font-size:8px;color:${flow.color};white-space:nowrap;pointer-events:none">↳ ${flow.displaced} displaced</div>`,
+        iconSize:[120,18], iconAnchor:[60,9],
+      });
+      const label = L.marker([midLat, midLng], { icon: labelIcon, interactive:false, zIndexOffset:500 }).addTo(map);
+
+      state.current.push({ dot, line, label: originM, label2: label, from:[fLat,fLng], to:[tLat,tLng], progress: Math.random(), speed: 0.0003 + Math.random()*0.0002 });
+    });
+
+    let last = 0;
+    function step(ts) {
+      const dt = Math.min(ts - last, 80);
+      last = ts;
+      state.current.forEach(s => {
+        s.progress += dt * s.speed;
+        if (s.progress > 1) s.progress = 0;
+        const t = s.progress;
+        const lat = s.from[0] + (s.to[0] - s.from[0]) * t;
+        const lng = s.from[1] + (s.to[1] - s.from[1]) * t;
+        s.dot.setLatLng([lat, lng]);
+      });
+      rafId.current = requestAnimationFrame(step);
+    }
+    rafId.current = requestAnimationFrame(step);
+
+    return () => {
+      cancelAnimationFrame(rafId.current);
+      state.current.forEach(s => { s.dot?.remove(); s.line?.remove(); s.label?.remove(); s.label2?.remove(); });
+      state.current = [];
+    };
+  }, [map, active]);
+  return null;
+}
+
+/* ─── Hover Footage Mini-player ─────────────────────────────────────────── */
+// Mapping hotspot names → best matching live stream
+const HOTSPOT_FEEDS = {
+  'Ukraine Front':     { id:'nU5gyDFyB28', name:'Al Jazeera' },
+  'Gaza Strip':        { id:'nU5gyDFyB28', name:'Al Jazeera' },
+  'Sudan Civil War':   { id:'nU5gyDFyB28', name:'Al Jazeera' },
+  'Taiwan Strait':     { id:'phLMo_K5iMo', name:'DW News' },
+  'South China Sea':   { id:'phLMo_K5iMo', name:'DW News' },
+  'Iran Nuclear':      { id:'nU5gyDFyB28', name:'Al Jazeera' },
+  'North Korea':       { id:'phLMo_K5iMo', name:'DW News' },
+  'Yemen/Red Sea':     { id:'nU5gyDFyB28', name:'Al Jazeera' },
+  'Myanmar':           { id:'l8PMl7tUDIE', name:'France 24' },
+  'Sahel Region':      { id:'l8PMl7tUDIE', name:'France 24' },
+  'Lebanon/Hezbollah': { id:'nU5gyDFyB28', name:'Al Jazeera' },
+  'Pakistan-India LOC':{ id:'qHkqkpP3J0g', name:'NDTV India' },
+};
+
+function HoverFootagePanel({ hotspot, news, position, onClose }) {
+  if (!hotspot) return null;
+  const feed = HOTSPOT_FEEDS[hotspot.name] || { id:'nU5gyDFyB28', name:'Al Jazeera' };
+  const relatedNews = news.filter(a =>
+    a.title?.toLowerCase().includes(hotspot.name.split(' ')[0].toLowerCase()) ||
+    a.title?.toLowerCase().includes(hotspot.name.split('/')[0].toLowerCase())
+  ).slice(0, 4);
+  const threatColor = hotspot.escalation === 5 ? '#ef4444' : hotspot.escalation >= 4 ? '#f97316' : hotspot.escalation >= 3 ? '#f59e0b' : '#10b981';
+
+  return (
+    <div style={{
+      position:'absolute', bottom:100, right:20,
+      width:340, background:'rgba(4,8,16,0.97)',
+      border:`1px solid ${threatColor}55`,
+      borderRadius:10, zIndex:1400, overflow:'hidden',
+      backdropFilter:'blur(20px)',
+      boxShadow:`0 0 30px rgba(0,0,0,0.8), 0 0 15px ${threatColor}15`,
+      animation:'fade-in .25s ease',
+    }}>
+      <div style={{ background:`${threatColor}12`, borderBottom:`1px solid ${threatColor}30`, padding:'7px 10px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div>
+          <div style={{ fontSize:9, fontFamily:'monospace', letterSpacing:'0.12em', color:threatColor }}>LIVE INTEL — {hotspot.name.toUpperCase()}</div>
+          <div style={{ fontSize:8, color:'#6b7280', fontFamily:'monospace' }}>ESC L{hotspot.escalation} · {hotspot.trend.toUpperCase()} · {feed.name} LIVE</div>
+        </div>
+        <button onClick={onClose} style={{ background:'none', border:'none', color:'#4b5563', cursor:'pointer', fontSize:12, lineHeight:1 }}>✕</button>
+      </div>
+      {/* Mini live player */}
+      <div style={{ position:'relative', paddingBottom:'56.25%', height:0, overflow:'hidden' }}>
+        <iframe
+          key={hotspot.name}
+          src={`https://www.youtube.com/embed/${feed.id}?autoplay=1&mute=1&rel=0&modestbranding=1&controls=1`}
+          style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', border:'none' }}
+          allow="autoplay; encrypted-media"
+          allowFullScreen
+          title={`Live: ${hotspot.name}`}
+        />
+      </div>
+      {/* Related news */}
+      {relatedNews.length > 0 && (
+        <div style={{ padding:'6px 10px', borderTop:`1px solid ${threatColor}20` }}>
+          <div style={{ fontSize:7, color:'#4b5563', fontFamily:'monospace', letterSpacing:'0.1em', marginBottom:5 }}>RELATED HEADLINES</div>
+          {relatedNews.map((a,i) => (
+            <a key={i} href={a.url} target="_blank" rel="noopener noreferrer"
+              style={{ display:'block', fontSize:9, color:'#9ca3af', lineHeight:1.4, marginBottom:3, textDecoration:'none' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#d1d5db'}
+              onMouseLeave={e=>e.currentTarget.style.color='#9ca3af'}>
+              ▸ {a.title?.slice(0,70)}{a.title?.length>70?'…':''}
+            </a>
+          ))}
+        </div>
+      )}
+      {/* Hotspot summary */}
+      <div style={{ padding:'5px 10px 7px', background:'rgba(0,0,0,0.3)' }}>
+        <div style={{ fontSize:9, color:'#9ca3af', lineHeight:1.4 }}>{hotspot.summary}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── 360° Tactical Overview Panel ──────────────────────────────────────── */
+function TacticalOverview360Panel({ location, agentIntel, sarAutoOverlays, news, onClose }) {
+  const [analysisAge, setAnalysisAge] = useState(null);
+  useEffect(() => {
+    if (!agentIntel?.timestamp) return;
+    const ts = new Date(agentIntel.timestamp);
+    const id = setInterval(() => {
+      const diff = Math.floor((Date.now() - ts) / 1000);
+      setAnalysisAge(diff < 60 ? `${diff}s ago` : `${Math.floor(diff/60)}m ago`);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [agentIntel?.timestamp]);
+
+  if (!location) return null;
+
+  const threat     = agentIntel?.threat;
+  const scenarios  = agentIntel?.scenarios;
+  const brief      = agentIntel?.brief;
+  const locKey     = location.split(',')[0].toLowerCase().replace(/\s+/g, '');
+  const sarItem    = (sarAutoOverlays || []).find(s => s.zone?.toLowerCase().replace(/\s+/g,'').includes(locKey) || locKey.includes(s.zone?.toLowerCase().replace(/\s+/g,'')));
+  const relatedNews = (news || []).filter(a => a.title?.toLowerCase().includes(location.split(',')[0].toLowerCase().slice(0,5))).slice(0,4);
+  const threatColor = threat?.level==='CRITICAL'?'#ef4444':threat?.level==='HIGH'?'#f97316':threat?.level==='MODERATE'?'#f59e0b':'#10b981';
+
+  return (
+    <div style={{
+      position:'absolute', bottom:80, right:20,
+      width:420, maxHeight:'65vh', overflow:'hidden',
+      background:'rgba(4,8,16,0.97)',
+      border:`1px solid rgba(16,185,129,0.35)`,
+      borderRadius:10, zIndex:1500,
+      backdropFilter:'blur(20px)',
+      boxShadow:'0 0 50px rgba(0,0,0,0.85)',
+      display:'flex', flexDirection:'column',
+      animation:'fade-in .3s ease',
+    }}>
+      {/* Header */}
+      <div style={{ background:'rgba(16,185,129,0.08)', borderBottom:'1px solid rgba(16,185,129,0.2)', padding:'8px 12px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+        <div>
+          <div style={{ fontSize:7, color:'#6b7280', fontFamily:'monospace', letterSpacing:'0.16em' }}>◉ 360° TACTICAL OVERVIEW · 1-MIN BRIEF</div>
+          <div style={{ fontSize:12, color:'#f9fafb', fontFamily:'monospace', fontWeight:700, letterSpacing:'0.04em' }}>{location.toUpperCase()}</div>
+        </div>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          {threat && <span style={{ fontSize:8, fontFamily:'monospace', color:threatColor, background:`${threatColor}18`, border:`0.5px solid ${threatColor}55`, borderRadius:4, padding:'2px 8px' }}>{threat.level} · {threat.score}/100</span>}
+          {analysisAge && <span style={{ fontSize:7, color:'#4b5563', fontFamily:'monospace' }}>{analysisAge}</span>}
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'#4b5563', cursor:'pointer', fontSize:13 }}>✕</button>
+        </div>
+      </div>
+
+      <div style={{ overflowY:'auto', flex:1, padding:'10px 12px', display:'flex', flexDirection:'column', gap:8, scrollbarWidth:'thin', scrollbarColor:'rgba(16,185,129,0.15) transparent' }}>
+        {/* SAR Satellite Image */}
+        {sarItem?.previewUrl && (
+          <div style={{ borderRadius:6, overflow:'hidden', border:'1px solid rgba(99,102,241,0.3)', flexShrink:0 }}>
+            <img src={sarItem.previewUrl} alt="SAR" style={{ width:'100%', display:'block', maxHeight:160, objectFit:'cover' }} />
+            <div style={{ padding:'3px 8px', background:'rgba(99,102,241,0.12)', fontSize:7, color:'#818cf8', fontFamily:'monospace', display:'flex', justifyContent:'space-between' }}>
+              <span>🛸 SAR · {sarItem.sceneName}</span>
+              <span>Sentinel-1 GRD · VV/VH</span>
+            </div>
+          </div>
+        )}
+        {sarItem && !sarItem.previewUrl && (
+          <div style={{ padding:'6px 8px', background:'rgba(99,102,241,0.06)', border:'0.5px solid rgba(99,102,241,0.2)', borderRadius:5, fontSize:8, color:'#6366f1', fontFamily:'monospace' }}>
+            🛸 SAR COVERAGE: {sarItem.sceneName} — preview loading or unavailable
+          </div>
+        )}
+
+        {/* Graphs row: escalation gauge + scenario bars */}
+        {(threat || scenarios?.scenarios?.length > 0) && (
+          <div style={{ background:'rgba(255,255,255,0.02)', border:'0.5px solid rgba(255,255,255,0.07)', borderRadius:8, padding:'8px 10px' }}>
+            <div style={{ fontSize:7, fontFamily:'monospace', color:'#6b7280', letterSpacing:'0.14em', marginBottom:6 }}>TACTICAL ASSESSMENT GRAPHS</div>
+            <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+              {threat && <div style={{ flexShrink:0 }}><EscalationGauge score={threat.score} level={threat.level}/></div>}
+              {scenarios?.scenarios?.length > 0 && (
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:7, color:'#6b7280', fontFamily:'monospace', marginBottom:5 }}>SCENARIO PROB.</div>
+                  <ScenarioBars scenarios={scenarios.scenarios}/>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Next move prediction */}
+        {scenarios?.nextMoveProjection && (
+          <div style={{ background:'rgba(239,68,68,0.07)', border:'0.5px solid rgba(239,68,68,0.25)', borderRadius:6, padding:'8px 10px', flexShrink:0 }}>
+            <div style={{ fontSize:7, fontFamily:'monospace', color:'#ef4444', letterSpacing:'0.14em', marginBottom:4 }}>◈ NEXT MOVEMENT — 72H PREDICTION</div>
+            <div style={{ fontSize:10, color:'#fca5a5', lineHeight:1.5 }}>{scenarios.nextMoveProjection}</div>
+          </div>
+        )}
+
+        {/* Red team */}
+        {scenarios?.redTeamDecision && (
+          <div style={{ background:'rgba(168,85,247,0.06)', border:'0.5px solid rgba(168,85,247,0.2)', borderRadius:6, padding:'8px 10px', flexShrink:0 }}>
+            <div style={{ fontSize:7, fontFamily:'monospace', color:'#a855f7', letterSpacing:'0.14em', marginBottom:4 }}>RED TEAM ADVERSARY DECISION</div>
+            <div style={{ fontSize:10, color:'#c084fc', lineHeight:1.5 }}>{scenarios.redTeamDecision}</div>
+          </div>
+        )}
+
+        {/* Threat patterns */}
+        {threat?.patterns?.length > 0 && (
+          <div style={{ flexShrink:0 }}>
+            <div style={{ fontSize:7, color:'#6b7280', fontFamily:'monospace', letterSpacing:'0.1em', marginBottom:4 }}>ACTIVE THREAT PATTERNS</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+              {threat.patterns.map((p,i) => (
+                <span key={i} style={{ fontSize:8, fontFamily:'monospace', color:'#f59e0b', background:'rgba(245,158,11,0.08)', border:'0.5px solid rgba(245,158,11,0.25)', padding:'2px 7px', borderRadius:3 }}>▲ {p}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Active tactics */}
+        {scenarios?.activeTactics?.length > 0 && (
+          <div style={{ flexShrink:0 }}>
+            <div style={{ fontSize:7, color:'#6b7280', fontFamily:'monospace', letterSpacing:'0.1em', marginBottom:4 }}>ACTIVE WAR-GAME TACTICS</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+              {scenarios.activeTactics.map((t,i) => (
+                <span key={i} style={{ fontSize:8, fontFamily:'monospace', color:'#c084fc', background:'rgba(168,85,247,0.08)', border:'0.5px solid rgba(168,85,247,0.2)', padding:'2px 7px', borderRadius:3 }}>{t}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Window of action */}
+        {brief?.windowOfAction && (
+          <div style={{ background:'rgba(245,158,11,0.07)', border:'0.5px solid rgba(245,158,11,0.25)', borderRadius:5, padding:'6px 10px', display:'flex', gap:8, alignItems:'flex-start', flexShrink:0 }}>
+            <span style={{ color:'#f59e0b', fontSize:11, flexShrink:0 }}>⏱</span>
+            <div>
+              <div style={{ fontSize:7, fontFamily:'monospace', color:'#f59e0b', letterSpacing:'0.12em', marginBottom:2 }}>WINDOW OF ACTION</div>
+              <div style={{ fontSize:10, color:'#fbbf24', lineHeight:1.4 }}>{brief.windowOfAction}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Related news */}
+        {relatedNews.length > 0 && (
+          <div style={{ flexShrink:0 }}>
+            <div style={{ fontSize:7, color:'#6b7280', fontFamily:'monospace', letterSpacing:'0.1em', marginBottom:5 }}>LIVE NEWS — {location.toUpperCase()}</div>
+            {relatedNews.map((a,i) => (
+              <a key={i} href={a.url} target="_blank" rel="noopener noreferrer"
+                style={{ display:'block', fontSize:9, color:'#9ca3af', lineHeight:1.4, marginBottom:4, textDecoration:'none', padding:'4px 6px', background:'rgba(255,255,255,0.02)', borderRadius:4, border:'0.5px solid rgba(255,255,255,0.05)' }}
+                onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(16,185,129,0.3)'}
+                onMouseLeave={e=>e.currentTarget.style.borderColor='rgba(255,255,255,0.05)'}>
+                📰 {a.title?.slice(0,75)}{a.title?.length>75?'…':''}
+              </a>
+            ))}
+          </div>
+        )}
+
+        {/* Key findings */}
+        {brief?.keyFindings?.length > 0 && (
+          <div style={{ flexShrink:0 }}>
+            <div style={{ fontSize:7, color:'#6b7280', fontFamily:'monospace', letterSpacing:'0.1em', marginBottom:4 }}>KEY INTELLIGENCE FINDINGS</div>
+            {brief.keyFindings.slice(0,3).map((f,i) => (
+              <div key={i} style={{ fontSize:9, color:'#d1d5db', lineHeight:1.5, display:'flex', gap:6, marginBottom:3 }}>
+                <span style={{ color:'#10b981', flexShrink:0 }}>▸</span><span>{f}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* No data yet */}
+        {!agentIntel && (
+          <div style={{ textAlign:'center', padding:'20px 0', color:'#374151', fontSize:10, fontFamily:'monospace' }}>
+            <div style={{ fontSize:14, marginBottom:8 }}>⬡</div>
+            <div>360° analysis running…</div>
+            <div style={{ fontSize:8, marginTop:4, color:'#1f2937' }}>5-agent board + SAR + news loading</div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1423,7 +1771,7 @@ function AgentDiscussionOverlay({ discussion, agentIntel, analysisRunning }) {
 }
 
 /* ─── Main component ─────────────────────────────────────────────────────── */
-export default function TacticalMap({ predictedRoi, agentIntel, discussion, analysisRunning, localIntelOverlay, sarOverlay, sarAutoOverlays }) {
+export default function TacticalMap({ predictedRoi, agentIntel, discussion, analysisRunning, localIntelOverlay, sarOverlay, sarAutoOverlays, onMapSearch, mapSearchTarget }) {
   const [conflictEvents, setConflictEvents] = useState([]);
   const [quakes,         setQuakes]         = useState([]);
   const [naturalEvts,    setNaturalEvts]    = useState([]);
@@ -1441,16 +1789,52 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [mapMode,        setMapMode]        = useState('2d'); // '2d' | '3d'
   // Floating map search
-  const [mapSearch,      setMapSearch]      = useState('');
-  const [mapSearchOverlay, setMapSearchOverlay] = useState(null); // {boundary, location}
-  const [mapSearchLoading, setMapSearchLoading] = useState(false);
+  const [mapSearch,           setMapSearch]           = useState('');
+  const [mapSearchOverlay,    setMapSearchOverlay]    = useState(null); // {boundary, location}
+  const [mapSearchLoading,    setMapSearchLoading]    = useState(false);
+  const [mapSearchFlyTarget,  setMapSearchFlyTarget]  = useState(null); // {lat,lng,zoom}
+  const [show360Panel,        setShow360Panel]        = useState(false);
+  const [hoveredHotspot,      setHoveredHotspot]      = useState(null); // hotspot obj or null
   const refreshRef = useRef(null);
+
+  // Show 360 panel whenever we have a map search + agent intel
+  useEffect(() => {
+    if (mapSearchOverlay?.location && agentIntel) setShow360Panel(true);
+  }, [mapSearchOverlay, agentIntel]);
+
+  // When mapSearchTarget changes (from SentinelPlatform), update search overlay on the map
+  useEffect(() => {
+    if (!mapSearchTarget) return;
+    setMapSearch(mapSearchTarget.name || '');
+    setMapSearchOverlay({ boundary: { lat: mapSearchTarget.lat, lng: mapSearchTarget.lng }, location: mapSearchTarget.name });
+    setMapSearchFlyTarget({ lat: mapSearchTarget.lat, lng: mapSearchTarget.lng, zoom: 10 });
+    setShow360Panel(true);
+  }, [mapSearchTarget]);
 
   const toggleLayer = id => setActiveLayers(prev => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
   });
+
+  // Map search → boundary resolve → fly → emit to parent for 360 analysis
+  const doMapSearch = useCallback(async (loc) => {
+    setMapSearchLoading(true);
+    try {
+      const r = await fetch(`/api/local-intel?action=boundary&location=${encodeURIComponent(loc)}`);
+      const d = await r.json();
+      if (d.boundary) {
+        setMapSearchOverlay({ boundary: d.boundary, location: loc });
+        const { lat, lng } = d.boundary;
+        if (lat && lng) {
+          setMapSearchFlyTarget({ lat, lng, zoom: 11 });
+          setShow360Panel(true);
+          if (onMapSearch) onMapSearch({ lat, lng, name: loc });
+        }
+      }
+    } catch(_) {}
+    setMapSearchLoading(false);
+  }, [onMapSearch]);
 
   const fetchAll = useCallback(async () => {
     const [ce, qk, ne, ct, hm] = await Promise.allSettled([
@@ -1818,44 +2202,23 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
           )}
 
           {/* ── Floating map search bar ── */}
-          <div style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:1100, display:'flex', gap:6, alignItems:'center', background:'rgba(6,10,20,0.92)', border:'1px solid rgba(16,185,129,0.45)', borderRadius:24, padding:'5px 8px 5px 14px', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)', boxShadow:'0 4px 20px rgba(0,0,0,0.5)', minWidth:260, maxWidth:'calc(100% - 40px)' }}>
+          <div style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:1100, display:'flex', gap:6, alignItems:'center', background:'rgba(6,10,20,0.92)', border:'1px solid rgba(16,185,129,0.45)', borderRadius:24, padding:'5px 8px 5px 14px', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)', boxShadow:'0 4px 20px rgba(0,0,0,0.5)', minWidth:300, maxWidth:'calc(100% - 40px)' }}>
             <span style={{ fontSize:10, color:'#10b981', flexShrink:0 }}>🔍</span>
             <input
               value={mapSearch}
               onChange={e=>setMapSearch(e.target.value)}
-              onKeyDown={async e=>{
-                if(e.key==='Enter'&&mapSearch.trim()){
-                  const loc=mapSearch.trim();
-                  setMapSearchLoading(true);
-                  try{
-                    const r=await fetch(`/api/local-intel?action=boundary&location=${encodeURIComponent(loc)}`);
-                    const d=await r.json();
-                    if(d.boundary){setMapSearchOverlay({boundary:d.boundary,location:loc});}
-                  }catch(e){}
-                  setMapSearchLoading(false);
-                }
-              }}
-              placeholder="Search location on map…"
-              style={{ flex:1, background:'transparent', border:'none', outline:'none', color:'#f9fafb', fontSize:11, fontFamily:'monospace', minWidth:140 }}
+              onKeyDown={e=>{ if(e.key==='Enter'&&mapSearch.trim()) doMapSearch(mapSearch.trim()); }}
+              placeholder="Search any location → 360° auto-analysis…"
+              style={{ flex:1, background:'transparent', border:'none', outline:'none', color:'#f9fafb', fontSize:11, fontFamily:'monospace', minWidth:160 }}
             />
             <button
-              onClick={async()=>{
-                const loc=mapSearch.trim();
-                if(!loc)return;
-                setMapSearchLoading(true);
-                try{
-                  const r=await fetch(`/api/local-intel?action=boundary&location=${encodeURIComponent(loc)}`);
-                  const d=await r.json();
-                  if(d.boundary){setMapSearchOverlay({boundary:d.boundary,location:loc});}
-                }catch(e){}
-                setMapSearchLoading(false);
-              }}
+              onClick={()=>{ if(mapSearch.trim()) doMapSearch(mapSearch.trim()); }}
               disabled={mapSearchLoading||!mapSearch.trim()}
-              style={{ background:'rgba(16,185,129,.15)', border:'0.5px solid rgba(16,185,129,.5)', borderRadius:16, color:'#10b981', fontSize:9, fontFamily:'monospace', fontWeight:700, padding:'4px 12px', cursor:'pointer', flexShrink:0, letterSpacing:'0.08em' }}>
-              {mapSearchLoading?'…':'LOCATE'}
+              style={{ background:'rgba(16,185,129,.15)', border:'0.5px solid rgba(16,185,129,.5)', borderRadius:16, color:'#10b981', fontSize:9, fontFamily:'monospace', fontWeight:700, padding:'4px 12px', cursor:'pointer', flexShrink:0, letterSpacing:'0.08em', opacity: mapSearchLoading?0.5:1 }}>
+              {mapSearchLoading?'SCANNING…':'360° SCAN'}
             </button>
             {mapSearchOverlay&&(
-              <button onClick={()=>setMapSearchOverlay(null)}
+              <button onClick={()=>{ setMapSearchOverlay(null); setShow360Panel(false); }}
                 style={{ background:'transparent', border:'none', color:'#4b5563', cursor:'pointer', fontSize:11, padding:'0 2px', flexShrink:0 }} title="Clear search">✕</button>
             )}
           </div>
@@ -1873,6 +2236,26 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
             agentIntel={agentIntel}
             analysisRunning={analysisRunning}
           />
+
+          {/* ── 360° Tactical Overview Panel (bottom-right, triggered by map search) ── */}
+          {show360Panel && mapSearchOverlay?.location && (
+            <TacticalOverview360Panel
+              location={mapSearchOverlay.location}
+              agentIntel={agentIntel}
+              sarAutoOverlays={sarAutoOverlays}
+              news={news}
+              onClose={()=>setShow360Panel(false)}
+            />
+          )}
+
+          {/* ── Hover Footage Mini-player (appears on hotspot hover) ── */}
+          {hoveredHotspot && (
+            <HoverFootagePanel
+              hotspot={hoveredHotspot}
+              news={news}
+              onClose={()=>setHoveredHotspot(null)}
+            />
+          )}
 
           {/* 3D perspective wrapper */}
           <div style={{
@@ -1986,6 +2369,8 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
             })}
 
             <MapFlyer coords={flyCoords} />
+            <MapSearchFlyer target={mapSearchFlyTarget} />
+            <HumanMovementLayer active={activeLayers.has('movement')} />
 
             {/* ROI circles */}
             {predictedRoi?.lat && predictedRoi?.lng && (<>
@@ -2063,12 +2448,17 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
               const c=ESCALATION_COLOR[h.escalation];
               return (
                 <CircleMarker key={h.id} center={[h.lat,h.lng]} radius={h.escalation===5?16:h.escalation>=4?13:10}
-                  pathOptions={{ color:c, fillColor:c, fillOpacity:.25, weight:2, dashArray:h.escalation>=4?undefined:'4,4' }}>
+                  pathOptions={{ color:c, fillColor:c, fillOpacity:.25, weight:2, dashArray:h.escalation>=4?undefined:'4,4' }}
+                  eventHandlers={{
+                    mouseover: () => setHoveredHotspot(h),
+                    mouseout:  () => setTimeout(()=>setHoveredHotspot(null), 300),
+                  }}>
                   <Tooltip direction="top" opacity={.95}>
                     <div style={{ fontFamily:'monospace', fontSize:11, minWidth:180 }}>
                       <b style={{ color:c }}>🎯 {h.name}</b><br/>
                       Level {h.escalation} · {h.trend.toUpperCase()}<br/>
-                      <span style={{ color:'#ccc' }}>{h.summary}</span>
+                      <span style={{ color:'#ccc' }}>{h.summary}</span><br/>
+                      <span style={{ color:'#666', fontSize:9 }}>Hover for live footage ↑</span>
                     </div>
                   </Tooltip>
                 </CircleMarker>

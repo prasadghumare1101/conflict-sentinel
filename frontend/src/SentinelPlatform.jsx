@@ -588,6 +588,22 @@ ${newsCtx}`
     { id:'sar',        label:'🛸 SAR' },
   ];
 
+  /* ── Local Intelligence state — declared BEFORE SAR callbacks that reference liLocation/liBoundary ── */
+  const [liLocation,   setLiLocation]   = useState('');
+  const [liInput,      setLiInput]      = useState('');
+  const [liBoundary,   setLiBoundary]   = useState(null);
+  const [liArticles,   setLiArticles]   = useState([]);
+  const [liPrediction, setLiPrediction] = useState(null);
+  const [liLoading,    setLiLoading]    = useState(false);
+  const [liPredLoading,setLiPredLoading]= useState(false);
+  const [liError,      setLiError]      = useState(null);
+  const [liHistory,    setLiHistory]    = useState([]);
+  const [liAgentStatus,setLiAgentStatus]= useState(null);
+  const liTimerRef   = useRef(null);
+  const [liAgents,     setLiAgents]     = useState([]);
+  const [liSynthesis,  setLiSynthesis]  = useState(null);
+  const [liAgentsLoading, setLiAgentsLoading] = useState(false);
+
   /* ── SAR Satellite state ── */
   const [sarLat,        setSarLat]        = useState('');
   const [sarLng,        setSarLng]        = useState('');
@@ -597,13 +613,13 @@ ${newsCtx}`
   const [sarPolariz,    setSarPolariz]    = useState('ALL');
   const [sarScenes,     setSarScenes]     = useState([]);
   const [sarLoading,    setSarLoading]    = useState(false);
-  const [sarSelected,   setSarSelected]  = useState(null); // scene object
+  const [sarSelected,   setSarSelected]  = useState(null);
   const [sarPreviewUrl, setSarPreviewUrl] = useState(null);
   const [sarPreviewLoading, setSarPreviewLoading] = useState(false);
   const [sarError,      setSarError]      = useState(null);
   const [sarTotal,      setSarTotal]      = useState(0);
-  const [sarInfo,       setSarInfo]       = useState(null); // {location, datetime}
-  const [sarStatus,     setSarStatus]     = useState(null); // connection check
+  const [sarInfo,       setSarInfo]       = useState(null);
+  const [sarStatus,     setSarStatus]     = useState(null);
 
   // Auto-fill lat/lng from Local Intel boundary when switching to SAR tab
   useEffect(() => {
@@ -667,22 +683,6 @@ ${newsCtx}`
       setSarPreviewLoading(false);
     }
   }, [sarCollection, onSarUpdate]);
-
-  /* ── Local Intelligence state ── */
-  const [liLocation,   setLiLocation]   = useState('');
-  const [liInput,      setLiInput]      = useState('');
-  const [liBoundary,   setLiBoundary]   = useState(null);
-  const [liArticles,   setLiArticles]   = useState([]);
-  const [liPrediction, setLiPrediction] = useState(null);
-  const [liLoading,    setLiLoading]    = useState(false);
-  const [liPredLoading,setLiPredLoading]= useState(false);
-  const [liError,      setLiError]      = useState(null);
-  const [liHistory,    setLiHistory]    = useState([]);
-  const [liAgentStatus,setLiAgentStatus]= useState(null);
-  const liTimerRef   = useRef(null);
-  const [liAgents,     setLiAgents]     = useState([]);   // 7-agent results
-  const [liSynthesis,  setLiSynthesis]  = useState(null); // combined brief
-  const [liAgentsLoading, setLiAgentsLoading] = useState(false);
 
   // Fetch all 7 local intel agents — must be defined BEFORE fetchLocalIntel (TDZ guard)
   const fetchLiAgents = useCallback(async (loc) => {

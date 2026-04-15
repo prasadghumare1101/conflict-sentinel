@@ -338,8 +338,11 @@ const DRONE_CONFIGS = [
 ];
 
 function makeDroneHtml(type, rotation, color, size) {
-  const svg = type === 'plane' ? planeSvg(rotation, color) : fpvDroneSvg(rotation, color);
-  return `<div class="drone-float-wrap" style="display:inline-block;line-height:0">${svg}</div>`;
+  const src = type === 'plane' ? '/airplane.png' : '/drone.png';
+  return `<div class="drone-float-wrap" style="display:inline-block;line-height:0">
+    <img src="${src}" width="${size}" height="${size}"
+      style="transform:rotate(${rotation}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px ${color}) brightness(1.1);display:block"/>
+  </div>`;
 }
 
 function AnimatedDronesLayer({ waypoints }) {
@@ -462,7 +465,8 @@ function MissileTrailsLayer({ bases, targets }) {
     pairs.forEach((pair, idx) => {
       const delay = idx * 3500; // stagger launches
       const brg = bearing(pair.src.lat, pair.src.lng, pair.dst.lat, pair.dst.lng);
-      const missileIcon = L.divIcon({ className:'', html: missileSvg(brg - 45), iconSize:[13,42], iconAnchor:[6,21] });
+      const missileHtml = `<img src="/missile.png" width="18" height="36" style="transform:rotate(${brg - 45}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px #ef4444);display:block"/>`;
+      const missileIcon = L.divIcon({ className:'', html: missileHtml, iconSize:[18,36], iconAnchor:[9,18] });
       const craterIcon  = L.divIcon({ className: '', html: craterSvg(), iconSize: [28, 28], iconAnchor: [14, 14] });
       const line = L.polyline([[pair.src.lat, pair.src.lng]], { color: '#ef4444', weight: 1.5, opacity: 0.6, dashArray: '5 4' }).addTo(map);
       const missileMarker = L.marker([pair.src.lat, pair.src.lng], { icon: missileIcon, interactive: false, zIndexOffset: 950 });
@@ -1311,96 +1315,34 @@ const AIRCRAFT_ROUTES = [
   { id:'ac-15', from:[48.00,37.80], to:[50.40,30.50], label:'UA Bayraktar → Kyiv RTB',    color:'#fbbf24', type:'fighter' },
 ];
 
-// ── SVG icon builders for Leaflet DivIcon ────────────────────────────────
+// ── PNG icon builders for Leaflet DivIcon ────────────────────────────────
+// All PNG files live in /public/ and are served as static assets.
+// Rotation is applied via CSS transform on the img element.
+// Color glow is preserved via drop-shadow filter.
+
 function truckSvgIcon(rot=0, color='#4ade80') {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 36" width="16" height="26"
-    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 3px ${color})">
-    <rect x="3" y="7" width="16" height="24" rx="2" fill="${color}" opacity=".9"/>
-    <rect x="4" y="1" width="14" height="9"  rx="2" fill="${color}"/>
-    <rect x="5.5" y="2" width="11" height="5" rx="1" fill="#001a08" opacity=".55"/>
-    <rect x="0"  y="9"  width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
-    <rect x="19" y="9"  width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
-    <rect x="0"  y="19" width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
-    <rect x="19" y="19" width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
-    <rect x="0"  y="28" width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
-    <rect x="19" y="28" width="3"  height="5" rx="1" fill="${color}" opacity=".7"/>
-    <line x1="6" y1="16" x2="16" y2="16" stroke="#00000033" stroke-width=".8" stroke-dasharray="2 2"/>
-    <line x1="6" y1="22" x2="16" y2="22" stroke="#00000033" stroke-width=".8" stroke-dasharray="2 2"/>
-  </svg>`;
+  return `<img src="/Tank.png" width="24" height="36"
+    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 4px ${color}) brightness(1.15);display:block"/>`;
 }
 
 function tankSvgIcon(rot=0, color='#3b82f6') {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 42" width="20" height="30"
-    style="transform:rotate(${rot}deg);transform-origin:50% 60%;filter:drop-shadow(0 0 4px ${color})">
-    <!-- Tracks -->
-    <rect x="0" y="7"  width="5" height="30" rx="2.5" fill="${color}" opacity=".45"/>
-    <rect x="23" y="7" width="5" height="30" rx="2.5" fill="${color}" opacity=".45"/>
-    <line x1="2.5" y1="10" x2="2.5" y2="34" stroke="#00000044" stroke-width=".6" stroke-dasharray="3 2"/>
-    <line x1="25.5" y1="10" x2="25.5" y2="34" stroke="#00000044" stroke-width=".6" stroke-dasharray="3 2"/>
-    <!-- Hull -->
-    <rect x="4" y="9"  width="20" height="24" rx="4" fill="${color}" opacity=".9"/>
-    <!-- Turret -->
-    <circle cx="14" cy="20" r="7" fill="${color}"/>
-    <!-- Gun barrel -->
-    <rect x="12.5" y="0" width="3" height="21" rx="1.5" fill="${color}" opacity=".95"/>
-    <!-- Hatch -->
-    <circle cx="14" cy="20" r="2.5" fill="#00000055"/>
-    <circle cx="14" cy="20" r="1.2" fill="#00000077"/>
-  </svg>`;
+  return `<img src="/Tank.png" width="26" height="34"
+    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px ${color}) brightness(1.2);display:block"/>`;
 }
 
 function fighterSvgIcon(rot=0, color='#60a5fa') {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 52" width="22" height="28"
-    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 4px ${color})">
-    <!-- Fuselage -->
-    <ellipse cx="20" cy="26" rx="3.5" ry="18" fill="${color}" opacity=".95"/>
-    <!-- Nose cone -->
-    <polygon points="20,3 17,12 23,12" fill="${color}"/>
-    <!-- Delta wings -->
-    <polygon points="20,20 2,38 6,40 20,26 34,40 38,38" fill="${color}" opacity=".85"/>
-    <!-- Tail fins -->
-    <polygon points="20,38 10,48 13,50 20,42 27,50 30,48" fill="${color}" opacity=".75"/>
-    <!-- Engine glow -->
-    <ellipse cx="20" cy="44" rx="3" ry="2" fill="#ff6600" opacity=".8"/>
-    <ellipse cx="20" cy="47" rx="2.5" ry="2" fill="#ff4400" opacity=".55" style="animation:blink .2s linear infinite"/>
-    <!-- Cockpit -->
-    <ellipse cx="20" cy="11" rx="2" ry="3.5" fill="#001a0a" opacity=".85"/>
-  </svg>`;
+  return `<img src="/fighter.png" width="28" height="32"
+    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px ${color}) brightness(1.15);display:block"/>`;
 }
 
 function transportSvgIcon(rot=0, color='#34d399') {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 48" width="24" height="22"
-    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 3px ${color})">
-    <!-- Fuselage -->
-    <ellipse cx="26" cy="24" rx="20" ry="5" fill="${color}" opacity=".9"/>
-    <!-- Nose -->
-    <polygon points="46,24 38,20 38,28" fill="${color}"/>
-    <!-- Tail -->
-    <polygon points="6,24 12,20 12,28" fill="${color}" opacity=".8"/>
-    <!-- Wings -->
-    <polygon points="26,22 10,15 8,17 26,24 44,17 42,15" fill="${color}" opacity=".8"/>
-    <!-- Tail fin -->
-    <polygon points="8,22 5,14 9,16" fill="${color}" opacity=".75"/>
-    <!-- Engines (under wings) -->
-    <ellipse cx="16" cy="21" rx="3" ry="1.5" fill="${color}" opacity=".7"/>
-    <ellipse cx="36" cy="21" rx="3" ry="1.5" fill="${color}" opacity=".7"/>
-  </svg>`;
+  return `<img src="/airplane.png" width="30" height="24"
+    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 4px ${color}) brightness(1.1);display:block"/>`;
 }
 
 function humanDotSvg(color='#f97316') {
-  // Walking figure cluster for civilian IDP flows
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 14" width="14" height="10">
-    <circle cx="4"  cy="3"  r="2" fill="${color}" opacity=".9"/>
-    <line   x1="4"  y1="5"  x2="4"  y2="10" stroke="${color}" stroke-width="1.4" opacity=".8"/>
-    <line   x1="4"  y1="7"  x2="2"  y2="10" stroke="${color}" stroke-width="1.2" opacity=".7"/>
-    <line   x1="4"  y1="7"  x2="6"  y2="10" stroke="${color}" stroke-width="1.2" opacity=".7"/>
-    <circle cx="10" cy="3"  r="2" fill="${color}" opacity=".7"/>
-    <line   x1="10" y1="5"  x2="10" y2="10" stroke="${color}" stroke-width="1.3" opacity=".65"/>
-    <line   x1="10" y1="7"  x2="8"  y2="10" stroke="${color}" stroke-width="1.1" opacity=".6"/>
-    <line   x1="10" y1="7"  x2="12" y2="10" stroke="${color}" stroke-width="1.1" opacity=".6"/>
-    <circle cx="15" cy="4"  r="1.5" fill="${color}" opacity=".5"/>
-    <line   x1="15" y1="5.5" x2="15" y2="10" stroke="${color}" stroke-width="1.1" opacity=".45"/>
-  </svg>`;
+  return `<img src="/human.png" width="16" height="16"
+    style="filter:drop-shadow(0 0 3px ${color}) brightness(1.1);display:block"/>`;
 }
 
 function HumanMovementLayer({ active }) {
@@ -1450,21 +1392,21 @@ function HumanMovementLayer({ active }) {
 
     // 1. Civilian IDP flows
     CIVILIAN_FLOWS.forEach(f => spawnFlow(f,
-      (rot) => humanDotSvg(f.color), 14, 10,
+      (rot) => humanDotSvg(f.color), 16, 16,
       { color:f.color, weight:1.5, opacity:0.45, dashArray:'5 5' },
       0.00025 + Math.random()*0.00015
     ));
 
     // 2. Army truck convoys
     TRUCK_ROUTES.forEach(f => spawnFlow(f,
-      (rot) => truckSvgIcon(rot, f.color), 16, 26,
+      (rot) => truckSvgIcon(rot, f.color), 24, 36,
       { color:f.color, weight:1.8, opacity:0.55, dashArray:'8 4' },
       0.00018 + Math.random()*0.00012
     ));
 
     // 3. Tank columns
     TANK_ROUTES.forEach(f => spawnFlow(f,
-      (rot) => tankSvgIcon(rot, f.color), 20, 30,
+      (rot) => tankSvgIcon(rot, f.color), 26, 34,
       { color:f.color, weight:2, opacity:0.6, dashArray:'none' },
       0.00012 + Math.random()*0.00010
     ));
@@ -1475,7 +1417,7 @@ function HumanMovementLayer({ active }) {
         ? (rot) => transportSvgIcon(rot, f.color)
         : (rot) => fighterSvgIcon(rot, f.color);
       spawnFlow(f,
-        iconFn, 24, 28,
+        iconFn, 30, 32,
         { color:f.color, weight:1.2, opacity:0.5, dashArray:'4 8' },
         0.00035 + Math.random()*0.00025  // aircraft move fastest
       );

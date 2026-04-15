@@ -26,7 +26,7 @@ app.post('/api/gemini-proxy', async (req, res) => {
     const response = await axios.post(
       'https://router.huggingface.co/v1/chat/completions',
       {
-        model: 'moonshotai/Kimi-K2.5:novita',
+        model: 'meta-llama/Llama-3.3-70B-Instruct',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }

@@ -1100,6 +1100,7 @@ const ALL_LAYERS = [
   { id:'satellite',    label:'Satellite',    icon:'🛰️', color:'#10b981' },
   { id:'agentswarms',  label:'Agent Swarms', icon:'⬡', color:'#3b82f6' },
   { id:'movement',     label:'Population',  icon:'🚶', color:'#f97316' },
+  { id:'dangerzone',   label:'Danger Zones', icon:'⚠', color:'#ef4444' },
 ];
 
 /* ─── Tactical graph sub-components ─────────────────────────────────────── */
@@ -1753,6 +1754,246 @@ function TacticalOverview360Panel({ location, agentIntel, sarAutoOverlays, news,
             <div style={{ fontSize:8, marginTop:4, color:'#1f2937' }}>5-agent board + SAR + news loading</div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Danger Zone Layer — auto-calculates and renders risk zones ─────────── */
+// Zones are computed from: hotspot escalation + conflict events + vehicle route intersections
+const DANGER_ZONES = [
+  // ── Northeast India ──────────────────────────────────────────────────────
+  { id:'dz-ne-01', lat:24.66, lng:93.91, r:80,  level:'CRITICAL', label:'Manipur Conflict Zone',    ops:['COIN OPS','HADR','IDP FLOW'] },
+  { id:'dz-ne-02', lat:26.15, lng:94.56, r:60,  level:'HIGH',     label:'Nagaland AFSPA Zone',      ops:['COIN OPS','BORDER WATCH'] },
+  { id:'dz-ne-03', lat:28.21, lng:94.72, r:120, level:'HIGH',     label:'Arunachal LAC Zone',       ops:['BORDER DEF','AIR COVER','ARMOR FWD'] },
+  { id:'dz-ne-04', lat:23.16, lng:92.94, r:70,  level:'HIGH',     label:'Mizoram-Myanmar Border',   ops:['BORDER MGMT','REFUGEE OPS'] },
+  { id:'dz-ne-05', lat:26.72, lng:88.43, r:50,  level:'ELEVATED', label:'Siliguri Corridor',        ops:['CRITICAL INFRA','ARTERY DEFENSE'] },
+  { id:'dz-ne-06', lat:27.07, lng:93.61, r:40,  level:'ELEVATED', label:'Jorhat Forward Base',      ops:['AIR OPS','LOGISTICS HUB'] },
+  // ── Global critical zones ─────────────────────────────────────────────────
+  { id:'dz-gl-01', lat:31.50, lng:34.40, r:25,  level:'CRITICAL', label:'Gaza Combat Zone',         ops:['KINETIC','HADR BLOCKED','AIRSTRIKE'] },
+  { id:'dz-gl-02', lat:48.00, lng:37.80, r:80,  level:'CRITICAL', label:'Donetsk Frontline',        ops:['HEAVY ARMOR','ARTY','DRONE OPS'] },
+  { id:'dz-gl-03', lat:49.99, lng:36.23, r:60,  level:'CRITICAL', label:'Kharkiv Combat Zone',      ops:['URBAN COMBAT','MISSILE STRIKES'] },
+  { id:'dz-gl-04', lat:34.53, lng:74.07, r:40,  level:'HIGH',     label:'LoC Hot Sector',           ops:['ARTY EXCHANGE','PATROL','ARMOR FWD'] },
+  { id:'dz-gl-05', lat:15.55, lng:32.53, r:100, level:'CRITICAL', label:'Khartoum War Zone',        ops:['KINETIC','CIVIL COLLAPSE','RSF OPS'] },
+  { id:'dz-gl-06', lat:13.50, lng:45.00, r:90,  level:'HIGH',     label:'Red Sea/Houthi Zone',      ops:['NAVAL THREAT','DRONE SWARMS','SHIPPING'] },
+  { id:'dz-gl-07', lat:12.00, lng:114.00,r:150, level:'ELEVATED', label:'South China Sea',          ops:['NAVAL PATROL','ISR','FREEDOM OPS'] },
+  { id:'dz-gl-08', lat:24.00, lng:120.50,r:120, level:'HIGH',     label:'Taiwan Strait',            ops:['AMPHIBIOUS THREAT','AIR SURGE','NAVAL'] },
+  { id:'dz-gl-09', lat:19.70, lng:96.10, r:80,  level:'HIGH',     label:'Myanmar Civil War',        ops:['COIN','DISPLACEMENT','BORDER PRESSURE'] },
+];
+
+const DZ_COLORS = {
+  CRITICAL: { ring:'#ef4444', fill:'rgba(239,68,68,0.06)', text:'#ef4444', dash:'none'   },
+  HIGH:     { ring:'#f97316', fill:'rgba(249,115,22,0.05)', text:'#f97316', dash:'8 6'   },
+  ELEVATED: { ring:'#f59e0b', fill:'rgba(245,158,11,0.04)', text:'#f59e0b', dash:'12 8'  },
+  MODERATE: { ring:'#3b82f6', fill:'rgba(59,130,246,0.03)', text:'#3b82f6', dash:'14 10' },
+};
+
+function DangerZoneLayer({ active, conflictEvents }) {
+  const map = useMap();
+  const refs = useRef([]);
+
+  useEffect(() => {
+    refs.current.forEach(x => x?.remove());
+    refs.current = [];
+    if (!active) return;
+
+    DANGER_ZONES.forEach(dz => {
+      const c = DZ_COLORS[dz.level] || DZ_COLORS.MODERATE;
+      const radiusM = dz.r * 1000;
+
+      // Outer pulse ring
+      const outer = L.circle([dz.lat, dz.lng], {
+        radius: radiusM * 1.12, color: c.ring, weight: 0.7,
+        fillOpacity: 0, opacity: 0.3, dashArray: c.dash,
+      }).addTo(map);
+
+      // Main zone fill
+      const zone = L.circle([dz.lat, dz.lng], {
+        radius: radiusM, color: c.ring, weight: 1.5,
+        fillColor: c.ring, fillOpacity: 0.06, opacity: 0.55, dashArray: c.dash,
+      }).addTo(map);
+
+      // Zone label
+      const labelHtml = `
+        <div style="pointer-events:none;text-align:center;">
+          <div style="background:${c.ring}22;border:0.5px solid ${c.ring}66;border-radius:4px;padding:2px 8px;display:inline-block">
+            <div style="font-family:monospace;font-size:7.5px;color:${c.text};letter-spacing:0.12em;font-weight:700">${dz.level}</div>
+            <div style="font-family:monospace;font-size:7px;color:${c.text};opacity:0.8">${dz.label}</div>
+            <div style="font-family:monospace;font-size:6.5px;color:${c.text};opacity:0.55">${dz.ops.join(' · ')}</div>
+          </div>
+        </div>`;
+      const labelIcon = L.divIcon({ className:'', html:labelHtml, iconSize:[200,40], iconAnchor:[100,20] });
+      const labelM = L.marker([dz.lat, dz.lng], { icon:labelIcon, interactive:false, zIndexOffset:100 }).addTo(map);
+
+      refs.current.push(outer, zone, labelM);
+    });
+
+    // Also add cluster zones around dense conflict event areas
+    if (conflictEvents?.length) {
+      const clusters = {};
+      conflictEvents.filter(e=>['airstrike','missile','battle'].includes(e.type)).forEach(e => {
+        const key = `${Math.round(e.lat)},${Math.round(e.lng)}`;
+        clusters[key] = (clusters[key]||[]);
+        clusters[key].push(e);
+      });
+      Object.values(clusters).filter(evs=>evs.length>=2).forEach(evs => {
+        const avgLat = evs.reduce((s,e)=>s+e.lat,0)/evs.length;
+        const avgLng = evs.reduce((s,e)=>s+e.lng,0)/evs.length;
+        const deaths = evs.reduce((s,e)=>s+(e.deaths||0),0);
+        const ring = deaths>50?'#ef4444':deaths>10?'#f97316':'#f59e0b';
+        const r = L.circle([avgLat,avgLng], {
+          radius:30000, color:ring, weight:1.2,
+          fillColor:ring, fillOpacity:0.04, opacity:0.4, dashArray:'6 6',
+        }).addTo(map);
+        refs.current.push(r);
+      });
+    }
+
+    return () => { refs.current.forEach(x=>x?.remove()); refs.current = []; };
+  }, [map, active, conflictEvents]);
+
+  return null;
+}
+
+/* ─── Operations Tracker HUD ─────────────────────────────────────────────── */
+function OperationsTrackerHUD({ conflictEvents, agentIntel, sarAutoOverlays, localIntelOverlay, activeLayers, onLayerToggle }) {
+  const [expanded, setExpanded] = useState(true);
+  const [alertIdx,  setAlertIdx]  = useState(0);
+
+  const movActive = activeLayers.has('movement');
+  const dzActive  = activeLayers.has('dangerzone');
+
+  const totalCivilFlow = CIVILIAN_FLOWS.length;
+  const totalTrucks    = TRUCK_ROUTES.length;
+  const totalTanks     = TANK_ROUTES.length;
+  const totalAircraft  = AIRCRAFT_ROUTES.length;
+
+  const criticalDz = DANGER_ZONES.filter(d=>d.level==='CRITICAL').length;
+  const highDz     = DANGER_ZONES.filter(d=>d.level==='HIGH').length;
+
+  const alerts = [
+    criticalDz > 0  && `⚠ ${criticalDz} CRITICAL DANGER ZONES ACTIVE`,
+    totalTanks > 0  && `🔴 ${totalTanks} ARMOR COLUMNS IN MOTION`,
+    totalAircraft > 0 && `✈ ${totalAircraft} AIR SORTIES TRACKED`,
+    (sarAutoOverlays?.length||0)>0 && `🛸 ${sarAutoOverlays.length} SAR OVERLAYS ACTIVE`,
+    agentIntel?.threat?.level==='CRITICAL' && `◈ AGENT BOARD: CRITICAL THREAT — ${agentIntel.threat.score}/100`,
+    localIntelOverlay?.location && `🛰 LOCAL INTEL ACTIVE: ${localIntelOverlay.location?.toUpperCase()}`,
+  ].filter(Boolean);
+
+  // Cycle alerts every 3s
+  useEffect(() => {
+    if (!alerts.length) return;
+    const id = setInterval(()=>setAlertIdx(i=>(i+1)%alerts.length), 3000);
+    return ()=>clearInterval(id);
+  }, [alerts.length]);
+
+  if (!expanded) {
+    return (
+      <div style={{ position:'absolute', top:60, left:10, zIndex:1300, cursor:'pointer' }}
+        onClick={()=>setExpanded(true)}>
+        <div style={{ background:'rgba(4,8,16,0.92)', border:'1px solid rgba(16,185,129,0.4)', borderRadius:6, padding:'5px 10px', display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ width:7,height:7,borderRadius:'50%',background:'#ef4444',display:'inline-block',animation:'blink 0.8s ease-in-out infinite' }}/>
+          <span style={{ fontSize:8, fontFamily:'monospace', color:'#10b981', letterSpacing:'0.1em' }}>OPS TRACKER</span>
+          <span style={{ fontSize:8, fontFamily:'monospace', color:'#ef4444' }}>{criticalDz} CRIT</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position:'absolute', top:60, left:10, zIndex:1300, width:230, fontFamily:'monospace' }}>
+      <div style={{ background:'rgba(4,8,16,0.97)', border:'1px solid rgba(16,185,129,0.35)', borderRadius:8, overflow:'hidden', boxShadow:'0 4px 24px rgba(0,0,0,0.7)' }}>
+        {/* Header */}
+        <div style={{ background:'rgba(16,185,129,0.08)', borderBottom:'1px solid rgba(16,185,129,0.18)', padding:'5px 10px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <span style={{ width:6,height:6,borderRadius:'50%',background:'#10b981',display:'inline-block',animation:'blink 1s ease-in-out infinite' }}/>
+            <span style={{ fontSize:8, color:'#10b981', letterSpacing:'0.12em', fontWeight:700 }}>OPS TRACKER</span>
+          </div>
+          <button onClick={()=>setExpanded(false)} style={{ background:'none',border:'none',color:'#4b5563',cursor:'pointer',fontSize:10,padding:0,lineHeight:1 }}>−</button>
+        </div>
+
+        {/* Alert ticker */}
+        {alerts.length > 0 && (
+          <div style={{ background:'rgba(239,68,68,0.08)', borderBottom:'1px solid rgba(239,68,68,0.2)', padding:'4px 10px', minHeight:24, display:'flex', alignItems:'center' }}>
+            <span style={{ fontSize:8, color:'#ef4444', letterSpacing:'0.06em', animation:'fade-in .3s ease' }} key={alertIdx}>
+              {alerts[alertIdx]}
+            </span>
+          </div>
+        )}
+
+        {/* Movement counts */}
+        <div style={{ padding:'6px 10px', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ fontSize:7, color:'#4b5563', letterSpacing:'0.1em', marginBottom:5 }}>TRACKED MOVEMENTS {movActive?'● LIVE':'○ HIDDEN'}</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4 }}>
+            {[
+              { icon:'🚶', label:'IDP FLOWS',  val:totalCivilFlow, color:'#f97316', key:'movement' },
+              { icon:'🚛', label:'CONVOYS',    val:totalTrucks,    color:'#4ade80', key:'movement' },
+              { icon:'🔴', label:'ARMOR',      val:totalTanks,     color:'#ef4444', key:'movement' },
+              { icon:'✈',  label:'AIR OPS',   val:totalAircraft,  color:'#60a5fa', key:'movement' },
+            ].map((m,i)=>(
+              <div key={i} style={{ background:`${m.color}0d`, border:`0.5px solid ${m.color}33`, borderRadius:5, padding:'4px 7px', cursor:'pointer' }}
+                onClick={()=>onLayerToggle(m.key)}>
+                <div style={{ fontSize:9, color:m.color }}>{m.icon} {m.label}</div>
+                <div style={{ fontSize:13, fontWeight:700, color:'#f9fafb' }}>{movActive?m.val:<span style={{color:'#4b5563'}}>–</span>}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Danger zones */}
+        <div style={{ padding:'6px 10px', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
+            <div style={{ fontSize:7, color:'#4b5563', letterSpacing:'0.1em' }}>DANGER ZONES {dzActive?'● LIVE':'○ HIDDEN'}</div>
+            <button onClick={()=>onLayerToggle('dangerzone')} style={{ fontSize:7, background:dzActive?'rgba(239,68,68,0.15)':'rgba(255,255,255,0.05)', border:`0.5px solid ${dzActive?'#ef444466':'#374151'}`, borderRadius:3, color:dzActive?'#ef4444':'#4b5563', padding:'1px 6px', cursor:'pointer', fontFamily:'monospace' }}>
+              {dzActive?'HIDE':'SHOW'}
+            </button>
+          </div>
+          <div style={{ display:'flex', gap:4 }}>
+            {[['CRITICAL','#ef4444'], ['HIGH','#f97316'], ['ELEVATED','#f59e0b']].map(([lv,col])=>{
+              const cnt = DANGER_ZONES.filter(d=>d.level===lv).length;
+              return (
+                <div key={lv} style={{ flex:1, background:`${col}0d`, border:`0.5px solid ${col}44`, borderRadius:4, padding:'3px 4px', textAlign:'center' }}>
+                  <div style={{ fontSize:9, fontWeight:700, color:col }}>{cnt}</div>
+                  <div style={{ fontSize:6, color:col, opacity:.7, letterSpacing:'0.05em' }}>{lv.slice(0,4)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Active layers quick-toggle */}
+        <div style={{ padding:'6px 10px', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ fontSize:7, color:'#4b5563', letterSpacing:'0.1em', marginBottom:5 }}>INTEL OVERLAYS</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+            {[
+              { id:'conflict',    icon:'💥', label:'Conflict' },
+              { id:'hotspots',    icon:'🎯', label:'Hotspots' },
+              { id:'military',    icon:'🏭', label:'Military' },
+              { id:'cyberattacks',icon:'🔴', label:'APT' },
+              { id:'satellite',   icon:'🛰️', label:'SAR' },
+              { id:'agentswarms', icon:'⬡',  label:'Swarms' },
+            ].map(l=>{
+              const on = activeLayers.has(l.id);
+              return (
+                <button key={l.id} onClick={()=>onLayerToggle(l.id)}
+                  style={{ fontSize:7.5, padding:'2px 6px', border:`0.5px solid ${on?'rgba(16,185,129,0.5)':'rgba(255,255,255,0.08)'}`, borderRadius:3, background:on?'rgba(16,185,129,0.1)':'transparent', color:on?'#10b981':'#4b5563', cursor:'pointer', fontFamily:'monospace' }}>
+                  {l.icon} {l.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Selected operation quick-info */}
+        <div style={{ padding:'5px 10px' }}>
+          <div style={{ fontSize:7, color:'#4b5563', letterSpacing:'0.1em', marginBottom:4 }}>NE INDIA OPS SUMMARY</div>
+          <div style={{ fontSize:8, color:'#9ca3af', lineHeight:1.6 }}>
+            <span style={{ color:'#4ade80' }}>↑</span> 7 convoy routes active<br/>
+            <span style={{ color:'#60a5fa' }}>✈</span> 6 air sorties (Tezpur/Jorhat/Imphal AFB)<br/>
+            <span style={{ color:'#3b82f6' }}>⚑</span> Armor fwd: Pathankot→LoC, Manali→Ladakh<br/>
+            <span style={{ color:'#f97316' }}>↳</span> 7 IDP flows tracked (68k+ displaced)
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2467,6 +2708,16 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
             />
           )}
 
+          {/* ── Operations Tracker HUD (top-left, tracks all intel + movements) ── */}
+          <OperationsTrackerHUD
+            conflictEvents={conflictEvents}
+            agentIntel={agentIntel}
+            sarAutoOverlays={sarAutoOverlays}
+            localIntelOverlay={localIntelOverlay}
+            activeLayers={activeLayers}
+            onLayerToggle={toggleLayer}
+          />
+
           {/* 3D perspective wrapper */}
           <div style={{
             height:'100%', width:'100%', position:'relative',
@@ -2581,6 +2832,7 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
             <MapFlyer coords={flyCoords} />
             <MapSearchFlyer target={mapSearchFlyTarget} />
             <HumanMovementLayer active={activeLayers.has('movement')} />
+            <DangerZoneLayer active={activeLayers.has('dangerzone')} conflictEvents={conflictEvents} />
 
             {/* ROI circles */}
             {predictedRoi?.lat && predictedRoi?.lng && (<>

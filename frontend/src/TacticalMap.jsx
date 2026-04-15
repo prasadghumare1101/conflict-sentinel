@@ -338,19 +338,16 @@ const DRONE_CONFIGS = [
   { type:'uav',    color:'#ffcc00', size:44 },
 ];
 
-const FALLBACK_DIV = (color, size) =>
-  `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};opacity:0.85;box-shadow:0 0 6px ${color}"></div>`;
-
 function makeDroneHtml(type, rotation, color, size) {
   const src = type === 'plane' ? '/airplane.png'
             : type === 'shahed' ? '/Shahed.png'
             : type === 'uav'    ? '/UAV.png'
             : '/drone.png';
-  const fb = FALLBACK_DIV(color, size).replace(/`/g, '').replace(/"/g, "'");
-  return `<div class="drone-float-wrap" style="display:inline-block;line-height:0">
+  return `<div class="drone-float-wrap" style="display:inline-block;line-height:0;position:relative;width:${size}px;height:${size}px">
     <img src="${src}" width="${size}" height="${size}"
-      style="transform:rotate(${rotation}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px ${color}) brightness(1.1);display:block"
-      onerror="this.style.display='none';this.parentNode.innerHTML='${FALLBACK_DIV(color, size).replace(/'/g, '"').replace(/"/g, '\\"').replace(/\n/g,'')}'"/>
+      style="transform:rotate(${rotation}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px ${color}) brightness(1.1);display:block;position:absolute"
+      onerror="this.style.display='none';this.nextSibling.style.display='block'"/>
+    <div style="display:none;width:${size}px;height:${size}px;border-radius:50%;background:${color};opacity:0.85;box-shadow:0 0 6px ${color}"></div>
   </div>`;
 }
 
@@ -474,7 +471,7 @@ function MissileTrailsLayer({ bases, targets }) {
     pairs.forEach((pair, idx) => {
       const delay = idx * 3500; // stagger launches
       const brg = bearing(pair.src.lat, pair.src.lng, pair.dst.lat, pair.dst.lng);
-      const missileHtml = `<img src="/missile.png" width="18" height="36" style="transform:rotate(${brg - 45}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px #ef4444);display:block" onerror="this.outerHTML='<div style=\\"width:10px;height:20px;background:#ef4444;border-radius:2px 2px 50% 50%;box-shadow:0 0 6px #ef4444\\"></div>'"/>`;
+      const missileHtml = `<div style="position:relative;width:18px;height:36px"><img src="/missile.png" width="18" height="36" style="transform:rotate(${brg - 45}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px #ef4444);display:block;position:absolute" onerror="this.style.display='none';this.nextSibling.style.display='block'"/><div style="display:none;width:10px;height:20px;margin:8px 4px;background:#ef4444;border-radius:2px 2px 50% 50%;box-shadow:0 0 6px #ef4444"></div></div>`;
       const missileIcon = L.divIcon({ className:'', html: missileHtml, iconSize:[18,36], iconAnchor:[9,18] });
       const craterIcon  = L.divIcon({ className: '', html: craterSvg(), iconSize: [28, 28], iconAnchor: [14, 14] });
       const line = L.polyline([[pair.src.lat, pair.src.lng]], { color: '#ef4444', weight: 1.5, opacity: 0.6, dashArray: '5 4' }).addTo(map);
@@ -1342,13 +1339,16 @@ const AIRCRAFT_ROUTES = [
 // Color glow is preserved via drop-shadow filter.
 
 function pngIcon(src, w, h, rot, color, fallbackShape='rect') {
-  const fb = fallbackShape === 'circle'
-    ? `<div style=\\"width:${w}px;height:${h}px;border-radius:50%;background:${color};box-shadow:0 0 5px ${color}\\"></div>`
-    : `<div style=\\"width:${w}px;height:${h}px;background:${color};border-radius:2px;box-shadow:0 0 5px ${color}\\"></div>`;
+  const radius = fallbackShape === 'circle' ? '50%' : '2px';
   const rotStyle = rot !== undefined ? `transform:rotate(${rot}deg);transform-origin:50% 50%;` : '';
-  return `<img src="${src}" width="${w}" height="${h}"
-    style="${rotStyle}filter:drop-shadow(0 0 4px ${color}) brightness(1.15);display:block"
-    onerror="this.outerHTML='${fb}'"/>`;
+  // Sibling-div fallback avoids all quote-escaping issues in onerror attribute.
+  // onerror just hides the img and shows the pre-rendered sibling div.
+  return `<div style="position:relative;width:${w}px;height:${h}px">
+    <img src="${src}" width="${w}" height="${h}"
+      style="${rotStyle}filter:drop-shadow(0 0 4px ${color}) brightness(1.15);display:block;position:absolute"
+      onerror="this.style.display='none';this.nextSibling.style.display='block'"/>
+    <div style="display:none;width:${w}px;height:${h}px;border-radius:${radius};background:${color};box-shadow:0 0 5px ${color}"></div>
+  </div>`;
 }
 
 function truckSvgIcon(rot=0, color='#4ade80') {

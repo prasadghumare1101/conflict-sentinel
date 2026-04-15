@@ -654,6 +654,14 @@ ${newsCtx}`
   const [sarAnalysisLoading, setSarAnalysisLoading] = useState(false);
   const [sarAnalysisError,   setSarAnalysisError]   = useState(null);
 
+  /* ── InSAR / DEM state ── */
+  const [insarTab,      setInsarTab]      = useState('dem');  // 'dem' | 'change'
+  const [insarDemUrl,   setInsarDemUrl]   = useState(null);
+  const [insarChgUrl,   setInsarChgUrl]   = useState(null);
+  const [insarLoading,  setInsarLoading]  = useState(false);
+  const [insarError,    setInsarError]    = useState(null);
+  const [insarBbox,     setInsarBbox]     = useState(null);
+
   // Auto-fill lat/lng from Local Intel boundary when switching to SAR tab
   useEffect(() => {
     if (activeView === 'sar' && liBoundary?.lat && !sarLat) {
@@ -847,6 +855,74 @@ Analyze this SAR dataset and return the JSON intelligence assessment.`;
       setSarAnalysisLoading(false);
     }
   }, [sarScenes, sarInfo, sarTotal, liLocation, sarLat, sarLng, sarTimespan, sarCollection, sarPolariz, sarRadius, onSarUpdate]);
+
+  /* ── InSAR / DEM fetch callbacks ──────────────────────────────────────── */
+  const fetchDem = useCallback(async () => {
+    if (!sarLat || !sarLng) return;
+    setInsarLoading(true); setInsarError(null);
+    try {
+      const params = new URLSearchParams({
+        action: 'dem', lat: sarLat, lng: sarLng,
+        radius_km: sarRadius || '50', dem_instance: 'COPERNICUS_30',
+      });
+      const r = await fetch(`/api/sar-catalog?${params}`);
+      if (!r.ok) {
+        const d = await r.json().catch(()=>({error:'DEM fetch failed'}));
+        throw new Error(d.error || `HTTP ${r.status}`);
+      }
+      // Parse bbox from response header
+      const bboxHdr = r.headers.get('X-Bbox');
+      if (bboxHdr) setInsarBbox(JSON.parse(bboxHdr));
+      else {
+        const R = (parseFloat(sarRadius)||50) / 111;
+        const lat = parseFloat(sarLat), lng = parseFloat(sarLng);
+        setInsarBbox([lng-R, lat-R, lng+R, lat+R]);
+      }
+      const blob = await r.blob();
+      if (blob.size < 500) throw new Error('DEM image too small — area may be outside Copernicus coverage');
+      setInsarDemUrl(URL.createObjectURL(blob));
+    } catch(e) {
+      setInsarError(e.message);
+    } finally {
+      setInsarLoading(false);
+    }
+  }, [sarLat, sarLng, sarRadius]);
+
+  const fetchInsarChange = useCallback(async () => {
+    if (!sarLat || !sarLng) return;
+    setInsarLoading(true); setInsarError(null);
+    try {
+      // Span = sarTimespan converted to from/to dates
+      const days = {'1d':1,'3d':3,'7d':7,'14d':14,'30d':30,'90d':90}[sarTimespan] || 30;
+      const to   = new Date().toISOString().slice(0,10);
+      const from = new Date(Date.now() - days*86400000).toISOString().slice(0,10);
+      const params = new URLSearchParams({
+        action: 'insar', lat: sarLat, lng: sarLng,
+        radius_km: sarRadius || '50',
+        from_date: from, to_date: to,
+        collection: sarCollection || 'sentinel-1-grd',
+      });
+      const r = await fetch(`/api/sar-catalog?${params}`);
+      if (!r.ok) {
+        const d = await r.json().catch(()=>({error:'InSAR fetch failed'}));
+        throw new Error(d.error || `HTTP ${r.status}`);
+      }
+      const bboxHdr = r.headers.get('X-Bbox');
+      if (bboxHdr) setInsarBbox(JSON.parse(bboxHdr));
+      else {
+        const R = (parseFloat(sarRadius)||50) / 111;
+        const lat = parseFloat(sarLat), lng = parseFloat(sarLng);
+        setInsarBbox([lng-R, lat-R, lng+R, lat+R]);
+      }
+      const blob = await r.blob();
+      if (blob.size < 500) throw new Error('Change map too small — no SAR coverage for this timespan');
+      setInsarChgUrl(URL.createObjectURL(blob));
+    } catch(e) {
+      setInsarError(e.message);
+    } finally {
+      setInsarLoading(false);
+    }
+  }, [sarLat, sarLng, sarRadius, sarTimespan, sarCollection]);
 
   // Fetch all 7 local intel agents — must be defined BEFORE fetchLocalIntel (TDZ guard)
   const fetchLiAgents = useCallback(async (loc) => {
@@ -1670,6 +1746,120 @@ Analyze this SAR dataset and return the JSON intelligence assessment.`;
             </div>
           )}
 
+          {/* ── InSAR / DEM Terrain Analysis ── */}
+          <div style={{background:"#0d1320",border:"0.5px solid rgba(99,102,241,.3)",borderRadius:8,overflow:"hidden"}}>
+            <div style={{padding:"7px 12px",borderBottom:"0.5px solid rgba(99,102,241,.18)",background:"rgba(99,102,241,.07)",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+              <div>
+                <div style={{fontSize:8,color:"#818cf8",fontFamily:"monospace",letterSpacing:"0.14em"}}>📡 InSAR / DEM TERRAIN ANALYSIS</div>
+                <div style={{fontSize:7.5,color:"#4b5563",fontFamily:"monospace",marginTop:1}}>Digital Elevation · Change Detection · InSAR</div>
+              </div>
+              <div style={{display:"flex",gap:4}}>
+                {[{id:'dem',label:'DEM'},{id:'change',label:'CHANGE'}].map(t=>(
+                  <button key={t.id} onClick={()=>setInsarTab(t.id)}
+                    style={{fontSize:7.5,padding:"3px 10px",border:`0.5px solid ${insarTab===t.id?"rgba(99,102,241,.7)":"rgba(99,102,241,.2)"}`,borderRadius:3,background:insarTab===t.id?"rgba(99,102,241,.18)":"transparent",color:insarTab===t.id?"#a5b4fc":"#4b5563",cursor:"pointer",fontFamily:"monospace",letterSpacing:"0.08em",fontWeight:insarTab===t.id?700:400}}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{padding:"10px 12px"}}>
+              {insarTab==='dem'&&(
+                <div>
+                  {/* Elevation legend */}
+                  <div style={{display:"flex",gap:3,marginBottom:8,alignItems:"center"}}>
+                    {[
+                      {c:"#0a1f80",l:"Sea"},
+                      {c:"#478a3d",l:"Low"},
+                      {c:"#b3c851",l:"Plain"},
+                      {c:"#cc8530",l:"Hill"},
+                      {c:"#ad6620",l:"High"},
+                      {c:"#d9cead",l:"Alpine"},
+                      {c:"#f5f5f5",l:"Snow"},
+                    ].map(e=>(
+                      <div key={e.l} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                        <div style={{width:14,height:8,borderRadius:2,background:e.c}}/>
+                        <span style={{fontSize:6,color:"#4b5563",fontFamily:"monospace"}}>{e.l}</span>
+                      </div>
+                    ))}
+                    <span style={{fontSize:7,color:"#374151",fontFamily:"monospace",marginLeft:4}}>Copernicus GLO-30 · 30m res</span>
+                  </div>
+                  <button onClick={fetchDem} disabled={insarLoading||!sarLat||!sarLng}
+                    style={{width:"100%",padding:"9px 12px",background:"rgba(99,102,241,.12)",border:"0.5px solid rgba(99,102,241,.45)",borderRadius:6,color:"#a5b4fc",fontSize:10,fontFamily:"monospace",fontWeight:700,cursor:"pointer",letterSpacing:"0.1em",opacity:(!sarLat||!sarLng)?0.4:1}}>
+                    {insarLoading?'⬡ GENERATING DEM…':'🏔 GENERATE ELEVATION MAP'}
+                  </button>
+                  {insarDemUrl&&!insarLoading&&(
+                    <div style={{marginTop:8}}>
+                      <img src={insarDemUrl} alt="DEM elevation" style={{width:"100%",borderRadius:6,border:"0.5px solid rgba(99,102,241,.35)",display:"block"}}/>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5}}>
+                        <span style={{fontSize:7.5,color:"#6b7280",fontFamily:"monospace"}}>
+                          DEM GLO-30 · {parseFloat(sarLat).toFixed(3)}°N {parseFloat(sarLng).toFixed(3)}°E
+                        </span>
+                        <button onClick={()=>insarBbox&&onSarUpdate&&onSarUpdate({bbox:insarBbox,previewUrl:insarDemUrl,sceneName:'DEM-GLO30',footprint:null})}
+                          style={{fontSize:7.5,padding:"2px 9px",border:"0.5px solid rgba(99,102,241,.5)",borderRadius:3,background:"rgba(99,102,241,.12)",color:"#a5b4fc",cursor:"pointer",fontFamily:"monospace",letterSpacing:"0.06em"}}>
+                          ⬡ OVERLAY MAP
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {insarTab==='change'&&(
+                <div>
+                  {/* Change legend */}
+                  <div style={{display:"flex",gap:3,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
+                    {[
+                      {c:"#dc2626",l:"↑ Activity"},
+                      {c:"#2563eb",l:"↓ Flood/Demo"},
+                      {c:"#374151",l:"Stable"},
+                    ].map(e=>(
+                      <div key={e.l} style={{display:"flex",alignItems:"center",gap:3}}>
+                        <div style={{width:10,height:10,borderRadius:2,background:e.c}}/>
+                        <span style={{fontSize:7,color:"#6b7280",fontFamily:"monospace"}}>{e.l}</span>
+                      </div>
+                    ))}
+                    <span style={{fontSize:6.5,color:"#374151",fontFamily:"monospace",marginLeft:4}}>SAR backscatter Δ · {sarTimespan} window</span>
+                  </div>
+                  <div style={{fontSize:7.5,color:"#4b5563",fontFamily:"monospace",marginBottom:8,lineHeight:1.7,background:"rgba(239,68,68,.04)",border:"0.5px solid rgba(239,68,68,.12)",borderRadius:4,padding:"5px 8px"}}>
+                    InSAR-style change detection: compares earliest vs latest Sentinel-1 pass<br/>
+                    Red = new rubble/construction/vehicle activity · Blue = demolition/flooding · Green = stable
+                  </div>
+                  <button onClick={fetchInsarChange} disabled={insarLoading||!sarLat||!sarLng}
+                    style={{width:"100%",padding:"9px 12px",background:"rgba(239,68,68,.1)",border:"0.5px solid rgba(239,68,68,.4)",borderRadius:6,color:"#f87171",fontSize:10,fontFamily:"monospace",fontWeight:700,cursor:"pointer",letterSpacing:"0.1em",opacity:(!sarLat||!sarLng)?0.4:1}}>
+                    {insarLoading?'⬡ COMPUTING CHANGE MAP…':'📡 GENERATE InSAR CHANGE MAP'}
+                  </button>
+                  {insarChgUrl&&!insarLoading&&(
+                    <div style={{marginTop:8}}>
+                      <img src={insarChgUrl} alt="SAR change detection" style={{width:"100%",borderRadius:6,border:"0.5px solid rgba(239,68,68,.3)",display:"block"}}/>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:5}}>
+                        <span style={{fontSize:7.5,color:"#6b7280",fontFamily:"monospace"}}>
+                          Change detection · {sarTimespan} · {parseFloat(sarLat).toFixed(3)}°N
+                        </span>
+                        <button onClick={()=>insarBbox&&onSarUpdate&&onSarUpdate({bbox:insarBbox,previewUrl:insarChgUrl,sceneName:'SAR-CHANGE',footprint:null})}
+                          style={{fontSize:7.5,padding:"2px 9px",border:"0.5px solid rgba(239,68,68,.4)",borderRadius:3,background:"rgba(239,68,68,.1)",color:"#f87171",cursor:"pointer",fontFamily:"monospace",letterSpacing:"0.06em"}}>
+                          ⬡ OVERLAY MAP
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {insarError&&(
+                <div style={{marginTop:8,fontSize:9,color:"#ef4444",fontFamily:"monospace",background:"rgba(239,68,68,.06)",border:"0.5px solid rgba(239,68,68,.2)",borderRadius:4,padding:"6px 8px"}}>
+                  ⚠ {insarError}
+                </div>
+              )}
+
+              {!sarLat&&!sarLng&&(
+                <div style={{marginTop:4,fontSize:8,color:"#374151",fontFamily:"monospace",textAlign:"center",padding:"4px 0"}}>
+                  Enter coordinates above to enable terrain analysis
+                </div>
+              )}
+            </div>
+          </div>
+
           {sarScenes.length>0&&sarInfo&&(
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 4px"}}>
               <span style={{fontSize:8,color:"#10b981",fontFamily:"monospace",letterSpacing:"0.12em"}}>
@@ -1697,7 +1887,7 @@ Analyze this SAR dataset and return the JSON intelligence assessment.`;
               {sarAnalysisLoading&&!sarAnalysis&&(
                 <div style={{padding:"16px 12px",textAlign:"center"}}>
                   <div style={{fontSize:9,color:"#a855f7",fontFamily:"monospace",animation:"pulse-bar 1.5s ease-in-out infinite",marginBottom:4}}>Processing {sarScenes.length} SAR scenes…</div>
-                  <div style={{fontSize:8,color:"#4b5563",fontFamily:"monospace"}}>Kimi-K2.5 · SAR Intelligence Engine</div>
+                  <div style={{fontSize:8,color:"#4b5563",fontFamily:"monospace"}}>Llama-3.3-70B · SAR Intelligence Engine</div>
                 </div>
               )}
 

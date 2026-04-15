@@ -52,6 +52,61 @@ function evaluatePixel(s) {
   ];
 }`.trim();
 
+/* ── DEM evalscript — Copernicus GLO-30 hypsometric tint ─────────────────── */
+const DEM_EVALSCRIPT = `
+//VERSION=3
+function setup() {
+  return {
+    input:  [{ datasource:"DEM", bands:["DEM"] }],
+    output: { bands:3 },
+  };
+}
+function evaluatePixel(s) {
+  const h = s.DEM[0];
+  if (h <    0) return [0.04, 0.12, 0.50];  // water / below sea-level
+  if (h <   50) return [0.28, 0.58, 0.24];  // coastal / delta
+  if (h <  200) return [0.42, 0.70, 0.28];  // lowland
+  if (h <  500) return [0.70, 0.78, 0.32];  // plains
+  if (h < 1000) return [0.80, 0.68, 0.26];  // foothills
+  if (h < 2000) return [0.76, 0.52, 0.16];  // upland
+  if (h < 3500) return [0.68, 0.40, 0.12];  // highlands
+  if (h < 5000) return [0.85, 0.80, 0.68];  // alpine / snow line
+  return [0.96, 0.96, 0.96];                // glaciers / permanent snow
+}`.trim();
+
+/* ── InSAR change-detection evalscript (multi-temporal GRD) ─────────────── */
+// Red = backscatter increase (rubble/construction/activity)
+// Blue = decrease (flooding/demolition/vegetation loss)
+// Green-grey = stable terrain
+const INSAR_CHANGE_EVALSCRIPT = `
+//VERSION=3
+function setup() {
+  return {
+    input:  [{ bands:["VV","VH"], units:"LINEAR_POWER" }],
+    output: { bands:3 },
+    mosaicking: "ORBIT",
+  };
+}
+function evaluatePixel(samples) {
+  if (!samples || samples.length < 2) {
+    const s = samples && samples.length ? samples[0] : { VV:1e-10, VH:1e-10 };
+    const vv = 10 * Math.log10(s.VV + 1e-10);
+    const vh = 10 * Math.log10(s.VH + 1e-10);
+    return [
+      Math.max(0,Math.min(1,(vv+25)/30)),
+      Math.max(0,Math.min(1,(vh+32)/35)),
+      Math.max(0,Math.min(1,(vv-vh+10)/20))
+    ];
+  }
+  const s0 = samples[0], sN = samples[samples.length-1];
+  const dVV = Math.log10((sN.VV + 1e-10) / (s0.VV + 1e-10));
+  const dVH = Math.log10((sN.VH + 1e-10) / (s0.VH + 1e-10));
+  const inc    = Math.max(0, Math.min(1,  dVV / 1.5));
+  const dec    = Math.max(0, Math.min(1, -dVV / 1.5));
+  const stable = Math.max(0, Math.min(1, 1 - Math.abs(dVV) / 0.6)) * 0.45;
+  return [inc * 0.9 + 0.05, stable + Math.abs(dVH) * 0.15, dec * 0.9 + 0.05];
+}`.trim();
+
 /* ── Helper: lat/lng + radius → bbox array [W,S,E,N] ───────────────────── */
 function makeBbox(lat, lng, radius_km) {
   const R = (radius_km || 50) / 111;
@@ -278,18 +333,135 @@ module.exports = async function handler(req, res) {
       return res.send(Buffer.from(thumbResp.data));
     }
 
+    /* ══ action: dem — Copernicus GLO-30 elevation map ══════════════════════ */
+    if (action === 'dem') {
+      const { bbox, lat, lng, radius_km = 50, dem_instance = 'COPERNICUS_30' } = body;
+
+      let bboxArr;
+      if (bbox) {
+        bboxArr = Array.isArray(bbox) ? bbox : JSON.parse(bbox);
+      } else if (lat && lng) {
+        bboxArr = makeBbox(lat, lng, radius_km);
+      } else {
+        return res.status(400).json({ error: 'bbox or lat/lng required for DEM' });
+      }
+      const clampedBbox = clampBbox(bboxArr);
+
+      const demBody = {
+        input: {
+          bounds: {
+            bbox: clampedBbox,
+            properties: { crs: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84' },
+          },
+          data: [{ type: 'dem', dataFilter: { demInstance: dem_instance } }],
+        },
+        output: {
+          width:  512,
+          height: 512,
+          responses: [{ identifier: 'default', format: { type: 'image/jpeg' } }],
+        },
+        evalscript: DEM_EVALSCRIPT,
+      };
+
+      const procResp = await axios.post(PROCESS_URL, demBody, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type':  'application/json',
+          'Accept':        'image/jpeg',
+        },
+        responseType: 'arraybuffer',
+        timeout: 45000,
+      });
+
+      res.setHeader('Content-Type',  'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      // Return bbox so frontend can position overlay
+      res.setHeader('X-Bbox', JSON.stringify(clampedBbox));
+      return res.send(Buffer.from(procResp.data));
+    }
+
+    /* ══ action: insar — multi-temporal SAR change detection ════════════════ */
+    if (action === 'insar') {
+      const {
+        bbox, lat, lng,
+        radius_km  = 50,
+        from_date, to_date,
+        orbit,
+        collection = 'sentinel-1-grd',
+        polarization = 'DV',
+      } = body;
+
+      let bboxArr;
+      if (bbox) {
+        bboxArr = Array.isArray(bbox) ? bbox : JSON.parse(bbox);
+      } else if (lat && lng) {
+        bboxArr = makeBbox(lat, lng, radius_km);
+      } else {
+        return res.status(400).json({ error: 'bbox or lat/lng required for InSAR' });
+      }
+      const clampedBbox = clampBbox(bboxArr);
+
+      if (!from_date || !to_date) {
+        return res.status(400).json({ error: 'from_date and to_date required for InSAR change detection' });
+      }
+
+      const dataFilter = {
+        timeRange: {
+          from: new Date(from_date).toISOString().slice(0, 19) + 'Z',
+          to:   new Date(to_date).toISOString().slice(0, 19) + 'Z',
+        },
+        acquisitionMode: 'IW',
+        polarization: polarization || 'DV',
+      };
+      if (orbit && orbit !== 'UNKNOWN') {
+        dataFilter.orbitDirection = orbit.toUpperCase();
+      }
+
+      const processBody = {
+        input: {
+          bounds: {
+            bbox: clampedBbox,
+            properties: { crs: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84' },
+          },
+          data: [{ type: collection, dataFilter }],
+        },
+        output: {
+          width:  512,
+          height: 512,
+          responses: [{ identifier: 'default', format: { type: 'image/jpeg' } }],
+        },
+        evalscript: INSAR_CHANGE_EVALSCRIPT,
+      };
+
+      const procResp = await axios.post(PROCESS_URL, processBody, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type':  'application/json',
+          'Accept':        'image/jpeg',
+        },
+        responseType: 'arraybuffer',
+        timeout: 60000,
+      });
+
+      res.setHeader('Content-Type',  'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('X-Bbox', JSON.stringify(clampedBbox));
+      return res.send(Buffer.from(procResp.data));
+    }
+
     /* ══ action: status ═══════════════════════════════════════════════════ */
     if (action === 'status') {
       return res.json({
         authenticated: true,
         service:       'Copernicus Data Space Ecosystem (SentinelHub)',
         collections:   ['sentinel-1-grd', 'sentinel-1-slc'],
+        dem_instances: ['COPERNICUS_30', 'COPERNICUS_90', 'MAPZEN'],
         catalog_url:   CATALOG_URL,
         process_url:   PROCESS_URL,
       });
     }
 
-    return res.status(400).json({ error: `Unknown action: ${action}. Use: search | preview | status` });
+    return res.status(400).json({ error: `Unknown action: ${action}. Use: search | preview | dem | insar | status` });
 
   } catch (err) {
     const raw     = err.response?.data;

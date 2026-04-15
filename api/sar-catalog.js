@@ -57,7 +57,7 @@ const DEM_EVALSCRIPT = `
 //VERSION=3
 function setup() {
   return {
-    input:  [{ datasource:"DEM", bands:["DEM"] }],
+    input:  [{ bands:["DEM"] }],
     output: { bands:3 },
   };
 }

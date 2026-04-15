@@ -358,7 +358,7 @@ function AnimatedDronesLayer({ waypoints }) {
 
   useEffect(() => {
     if (!waypoints?.length) return;
-    const droneCount = Math.min(3, Math.floor(waypoints.length / 2));
+    const droneCount = Math.min(2, Math.floor(waypoints.length / 2));
     const drones = [];
 
     for (let d = 0; d < droneCount; d++) {
@@ -2214,7 +2214,7 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
   const [news,           setNews]           = useState([]);
   const [newsLoading,    setNewsLoading]    = useState(true);
   const [lastUpdate,     setLastUpdate]     = useState(null);
-  const [activeLayers,   setActiveLayers]   = useState(new Set(['conflict','hotspots','military','nuclear','waterways','earthquakes','natural','cyberattacks','agentswarms']));
+  const [activeLayers,   setActiveLayers]   = useState(new Set(['conflict','hotspots']));
   const [activeTab,      setActiveTab]      = useState('hotspots');
   const [selectedHotspot,setSelectedHotspot]= useState(null);
   const [tickerPaused,   setTickerPaused]   = useState(false);
@@ -2825,17 +2825,17 @@ export default function TacticalMap({ predictedRoi, agentIntel, discussion, anal
                 pathOptions={{ color:roiColor, fillColor:roiColor, fillOpacity:.03, dashArray:'3,8', weight:1, opacity:.5 }} />
             </>)}
 
-            {/* ── Animated drones flying between conflict zones ── */}
-            {activeLayers.has('conflict') && conflictEvents.length > 1 && (
+            {/* ── Animated drones flying between conflict zones (max 2 drones) ── */}
+            {activeLayers.has('conflict') && conflictEvents.length > 3 && (
               <AnimatedDronesLayer
-                waypoints={conflictEvents.filter(e=>['airstrike','drone','missile','battle'].includes(e.type)).slice(0,12)}
+                waypoints={conflictEvents.filter(e=>['airstrike','drone','missile'].includes(e.type)).slice(0,8)}
               />
             )}
 
-            {/* ── Airstrike explosion animations at airstrike/missile sites ── */}
+            {/* ── Airstrike explosion animations — only top 6 events ── */}
             {activeLayers.has('conflict') && (
               <AirstrikeEffectsLayer
-                events={conflictEvents.filter(e=>['airstrike','missile','explosion'].includes(e.type))}
+                events={conflictEvents.filter(e=>['airstrike','missile','explosion'].includes(e.type)).slice(0,6)}
               />
             )}
 

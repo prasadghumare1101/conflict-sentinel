@@ -332,16 +332,25 @@ function bearing(lat1, lng1, lat2, lng2) {
 /* ─── Animated flying drones/planes (move between conflict waypoints) ───── */
 // 3 craft types: FPV quad, fixed-wing plane, second FPV (different color)
 const DRONE_CONFIGS = [
-  { type:'fpv',   color:'#00ffff', size:44 },
-  { type:'plane', color:'#00ff88', size:52 },
-  { type:'fpv',   color:'#ffcc00', size:44 },
+  { type:'fpv',    color:'#00ffff', size:44 },
+  { type:'plane',  color:'#00ff88', size:52 },
+  { type:'shahed', color:'#ff6b35', size:44 },
+  { type:'uav',    color:'#ffcc00', size:44 },
 ];
 
+const FALLBACK_DIV = (color, size) =>
+  `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};opacity:0.85;box-shadow:0 0 6px ${color}"></div>`;
+
 function makeDroneHtml(type, rotation, color, size) {
-  const src = type === 'plane' ? '/airplane.png' : '/drone.png';
+  const src = type === 'plane' ? '/airplane.png'
+            : type === 'shahed' ? '/Shahed.png'
+            : type === 'uav'    ? '/UAV.png'
+            : '/drone.png';
+  const fb = FALLBACK_DIV(color, size).replace(/`/g, '').replace(/"/g, "'");
   return `<div class="drone-float-wrap" style="display:inline-block;line-height:0">
     <img src="${src}" width="${size}" height="${size}"
-      style="transform:rotate(${rotation}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px ${color}) brightness(1.1);display:block"/>
+      style="transform:rotate(${rotation}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px ${color}) brightness(1.1);display:block"
+      onerror="this.style.display='none';this.parentNode.innerHTML='${FALLBACK_DIV(color, size).replace(/'/g, '"').replace(/"/g, '\\"').replace(/\n/g,'')}'"/>
   </div>`;
 }
 
@@ -465,7 +474,7 @@ function MissileTrailsLayer({ bases, targets }) {
     pairs.forEach((pair, idx) => {
       const delay = idx * 3500; // stagger launches
       const brg = bearing(pair.src.lat, pair.src.lng, pair.dst.lat, pair.dst.lng);
-      const missileHtml = `<img src="/missile.png" width="18" height="36" style="transform:rotate(${brg - 45}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px #ef4444);display:block"/>`;
+      const missileHtml = `<img src="/missile.png" width="18" height="36" style="transform:rotate(${brg - 45}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px #ef4444);display:block" onerror="this.outerHTML='<div style=\\"width:10px;height:20px;background:#ef4444;border-radius:2px 2px 50% 50%;box-shadow:0 0 6px #ef4444\\"></div>'"/>`;
       const missileIcon = L.divIcon({ className:'', html: missileHtml, iconSize:[18,36], iconAnchor:[9,18] });
       const craterIcon  = L.divIcon({ className: '', html: craterSvg(), iconSize: [28, 28], iconAnchor: [14, 14] });
       const line = L.polyline([[pair.src.lat, pair.src.lng]], { color: '#ef4444', weight: 1.5, opacity: 0.6, dashArray: '5 4' }).addTo(map);
@@ -1312,7 +1321,19 @@ const AIRCRAFT_ROUTES = [
   { id:'ac-12', from:[11.55,43.15], to:[13.50,45.00], label:'Djibouti P-8 → Red Sea ISR', color:'#3b82f6', type:'transport' },
   { id:'ac-13', from:[25.12,51.31], to:[26.17,50.61], label:'Al Udeid → Bahrain (NAVCENT)',color:'#3b82f6',type:'transport' },
   { id:'ac-14', from:[18.23,109.57], to:[12.00,114.00], label:'Sanya → SCS (PLAN J-15)', color:'#ef4444', type:'fighter' },
-  { id:'ac-15', from:[48.00,37.80], to:[50.40,30.50], label:'UA Bayraktar → Kyiv RTB',    color:'#fbbf24', type:'fighter' },
+  { id:'ac-15', from:[48.00,37.80], to:[50.40,30.50], label:'UA Bayraktar → Kyiv RTB',    color:'#fbbf24', type:'uav' },
+  // ── Shahed / Iranian drones ──────────────────────────────────────────────
+  { id:'ac-16', from:[35.68,51.42], to:[31.50,34.47], label:'Iran Shahed-136 → Gaza',     color:'#ff6b35', type:'shahed' },
+  { id:'ac-17', from:[33.34,44.40], to:[32.89,13.18], label:'Shahed swarm → Libya',       color:'#ff6b35', type:'shahed' },
+  { id:'ac-18', from:[35.40,35.95], to:[48.00,37.80], label:'Shahed → Donetsk (via Syria)',color:'#ff4500', type:'shahed' },
+  // ── Helicopters ──────────────────────────────────────────────────────────
+  { id:'ac-19', from:[50.44,30.52], to:[49.50,32.00], label:'UA Mi-24 → Cherkasy CAS',    color:'#a78bfa', type:'helicopter' },
+  { id:'ac-20', from:[31.54,34.89], to:[31.28,34.26], label:'IDF AH-64 → N. Gaza',        color:'#a78bfa', type:'helicopter' },
+  { id:'ac-21', from:[15.50,32.56], to:[13.60,30.22], label:'SAF Mi-24 → Kordofan',       color:'#c084fc', type:'helicopter' },
+  // ── UAVs / ISR ───────────────────────────────────────────────────────────
+  { id:'ac-22', from:[11.55,43.15], to:[15.00,42.50], label:'MQ-9 Reaper → Yemen ISR',    color:'#fbbf24', type:'uav' },
+  { id:'ac-23', from:[26.36,127.77], to:[26.00,123.00], label:'RQ-4 Global Hawk → SCS',   color:'#fde68a', type:'uav' },
+  { id:'ac-24', from:[40.08,44.54], to:[39.50,47.00], label:'Bayraktar TB2 → Azerbaijan', color:'#fbbf24', type:'uav' },
 ];
 
 // ── PNG icon builders for Leaflet DivIcon ────────────────────────────────
@@ -1320,29 +1341,46 @@ const AIRCRAFT_ROUTES = [
 // Rotation is applied via CSS transform on the img element.
 // Color glow is preserved via drop-shadow filter.
 
+function pngIcon(src, w, h, rot, color, fallbackShape='rect') {
+  const fb = fallbackShape === 'circle'
+    ? `<div style=\\"width:${w}px;height:${h}px;border-radius:50%;background:${color};box-shadow:0 0 5px ${color}\\"></div>`
+    : `<div style=\\"width:${w}px;height:${h}px;background:${color};border-radius:2px;box-shadow:0 0 5px ${color}\\"></div>`;
+  const rotStyle = rot !== undefined ? `transform:rotate(${rot}deg);transform-origin:50% 50%;` : '';
+  return `<img src="${src}" width="${w}" height="${h}"
+    style="${rotStyle}filter:drop-shadow(0 0 4px ${color}) brightness(1.15);display:block"
+    onerror="this.outerHTML='${fb}'"/>`;
+}
+
 function truckSvgIcon(rot=0, color='#4ade80') {
-  return `<img src="/Tank.png" width="24" height="36"
-    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 4px ${color}) brightness(1.15);display:block"/>`;
+  return pngIcon('/Tank.png', 24, 36, rot, color);
 }
 
 function tankSvgIcon(rot=0, color='#3b82f6') {
-  return `<img src="/Tank.png" width="26" height="34"
-    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px ${color}) brightness(1.2);display:block"/>`;
+  return pngIcon('/Tank.png', 26, 34, rot, color);
 }
 
 function fighterSvgIcon(rot=0, color='#60a5fa') {
-  return `<img src="/fighter.png" width="28" height="32"
-    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 5px ${color}) brightness(1.15);display:block"/>`;
+  return pngIcon('/fighter.png', 28, 32, rot, color);
 }
 
 function transportSvgIcon(rot=0, color='#34d399') {
-  return `<img src="/airplane.png" width="30" height="24"
-    style="transform:rotate(${rot}deg);transform-origin:50% 50%;filter:drop-shadow(0 0 4px ${color}) brightness(1.1);display:block"/>`;
+  return pngIcon('/airplane.png', 30, 24, rot, color);
+}
+
+function shahedSvgIcon(rot=0, color='#ff6b35') {
+  return pngIcon('/Shahed.png', 28, 28, rot, color);
+}
+
+function helicopterSvgIcon(rot=0, color='#a78bfa') {
+  return pngIcon('/Helicopter.png', 30, 26, rot, color);
+}
+
+function uavSvgIcon(rot=0, color='#fbbf24') {
+  return pngIcon('/UAV.png', 28, 28, rot, color);
 }
 
 function humanDotSvg(color='#f97316') {
-  return `<img src="/human.png" width="16" height="16"
-    style="filter:drop-shadow(0 0 3px ${color}) brightness(1.1);display:block"/>`;
+  return pngIcon('/human.png', 16, 16, undefined, color, 'circle');
 }
 
 function HumanMovementLayer({ active }) {
@@ -1413,11 +1451,14 @@ function HumanMovementLayer({ active }) {
 
     // 4. Aircraft
     AIRCRAFT_ROUTES.forEach(f => {
-      const iconFn = f.type === 'transport'
-        ? (rot) => transportSvgIcon(rot, f.color)
-        : (rot) => fighterSvgIcon(rot, f.color);
+      let iconFn, iconW = 30, iconH = 30;
+      if (f.type === 'transport')   { iconFn = (rot) => transportSvgIcon(rot, f.color);   iconW=30; iconH=24; }
+      else if (f.type === 'shahed') { iconFn = (rot) => shahedSvgIcon(rot, f.color);      iconW=28; iconH=28; }
+      else if (f.type === 'helicopter') { iconFn = (rot) => helicopterSvgIcon(rot, f.color); iconW=30; iconH=26; }
+      else if (f.type === 'uav')    { iconFn = (rot) => uavSvgIcon(rot, f.color);         iconW=28; iconH=28; }
+      else                          { iconFn = (rot) => fighterSvgIcon(rot, f.color);     iconW=28; iconH=32; }
       spawnFlow(f,
-        iconFn, 30, 32,
+        iconFn, iconW, iconH,
         { color:f.color, weight:1.2, opacity:0.5, dashArray:'4 8' },
         0.00035 + Math.random()*0.00025  // aircraft move fastest
       );

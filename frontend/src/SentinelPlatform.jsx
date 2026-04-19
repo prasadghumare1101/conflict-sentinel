@@ -616,6 +616,7 @@ ${newsCtx}`
     { id:'footage',    label:'📺 FOOTAGE' },
     { id:'localintel', label:'🛰 LOCAL' },
     { id:'sar',        label:'🛸 SAR' },
+    { id:'dcloc',      label:'🏢 DC LOCATOR' },
   ];
 
   /* ── Local Intelligence state — declared BEFORE SAR callbacks that reference liLocation/liBoundary ── */
@@ -661,6 +662,13 @@ ${newsCtx}`
   const [insarLoading,  setInsarLoading]  = useState(false);
   const [insarError,    setInsarError]    = useState(null);
   const [insarBbox,     setInsarBbox]     = useState(null);
+
+  /* ── DC Locator state ── */
+  const [dcQuery,       setDcQuery]       = useState('');
+  const [dcLoading,     setDcLoading]     = useState(false);
+  const [dcError,       setDcError]       = useState(null);
+  const [dcResults,     setDcResults]     = useState(null);
+  const [dcDetailTab,   setDcDetailTab]   = useState('locations'); // 'locations'|'asns'|'prefixes'|'subdomains'
 
   // Auto-fill lat/lng from Local Intel boundary when switching to SAR tab
   useEffect(() => {
@@ -2041,6 +2049,222 @@ Analyze this SAR dataset and return the JSON intelligence assessment.`;
                 Supports GRD / SLC · IW mode · VV+VH<br/>
                 Scene footprint auto-overlaid on map<br/>
                 SAR preview generated via Copernicus Process API
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════
+           DC LOCATOR PANEL
+          ══════════════════════════════════════════════════════════ */}
+      {activeView==='dcloc'&&(
+        <div className="sp-scroll" style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:10,padding:"12px 12px 16px"}}>
+
+          {/* Header */}
+          <div style={{background:"#0d1320",border:"0.5px solid rgba(59,130,246,.2)",borderRadius:8,padding:"10px 12px"}}>
+            <div style={{fontSize:8,color:"#6b7280",fontFamily:"monospace",letterSpacing:"0.14em",marginBottom:3}}>🏢 DATA CENTER LOCATOR — OSINT INFRASTRUCTURE MAPPING</div>
+            <div style={{fontSize:11,color:"#f9fafb",fontFamily:"monospace",marginBottom:4}}>Discover physical DC locations for any organisation</div>
+            <div style={{fontSize:9,color:"#4b5563",fontFamily:"monospace",lineHeight:1.7}}>
+              Sources: BGPView · PeeringDB · RIPE Stat · ARIN RDAP · crt.sh · OpenStreetMap
+            </div>
+          </div>
+
+          {/* Search box */}
+          <div style={{background:"#0d1320",border:"0.5px solid rgba(59,130,246,.15)",borderRadius:8,padding:"10px 12px"}}>
+            <div style={{fontSize:8,color:"#6b7280",fontFamily:"monospace",letterSpacing:"0.12em",marginBottom:6}}>SEARCH TARGET</div>
+            <div style={{display:"flex",gap:6}}>
+              <input
+                value={dcQuery}
+                onChange={e=>setDcQuery(e.target.value)}
+                onKeyDown={e=>{if(e.key==='Enter'&&dcQuery.trim()){
+                  setDcLoading(true);setDcError(null);setDcResults(null);
+                  fetch(`/api/datacenter-locator?query=${encodeURIComponent(dcQuery.trim())}`)
+                    .then(r=>r.json())
+                    .then(d=>{setDcResults(d);setDcLoading(false);})
+                    .catch(err=>{setDcError(err.message);setDcLoading(false);});
+                }}}
+                placeholder="Company, domain, or ASN — e.g. Google / amazon.com / AS15169"
+                style={{flex:1,background:"#060b12",border:"0.5px solid rgba(59,130,246,.25)",borderRadius:4,
+                  padding:"6px 10px",color:"#e5e7eb",fontFamily:"monospace",fontSize:11,outline:"none"}}
+              />
+              <button
+                disabled={dcLoading||!dcQuery.trim()}
+                onClick={()=>{
+                  setDcLoading(true);setDcError(null);setDcResults(null);
+                  fetch(`/api/datacenter-locator?query=${encodeURIComponent(dcQuery.trim())}`)
+                    .then(r=>r.json())
+                    .then(d=>{setDcResults(d);setDcLoading(false);})
+                    .catch(err=>{setDcError(err.message);setDcLoading(false);});
+                }}
+                style={{padding:"6px 14px",background:dcLoading?"rgba(59,130,246,.1)":"rgba(59,130,246,.2)",
+                  border:"0.5px solid rgba(59,130,246,.4)",borderRadius:4,color:"#93c5fd",
+                  fontFamily:"monospace",fontSize:10,cursor:dcLoading?"wait":"pointer",whiteSpace:"nowrap"}}>
+                {dcLoading?'SCANNING…':'LOCATE ▶'}
+              </button>
+            </div>
+            <div style={{fontSize:8,color:"#374151",fontFamily:"monospace",marginTop:5,lineHeight:1.6}}>
+              Examples: &nbsp;
+              {['Google','microsoft.com','AS15169','US Department of Defense','Rostelecom'].map(ex=>(
+                <span key={ex}
+                  onClick={()=>setDcQuery(ex)}
+                  style={{color:"#3b82f6",cursor:"pointer",marginRight:8,textDecoration:"underline",textDecorationStyle:"dotted"}}>
+                  {ex}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Error */}
+          {dcError&&(
+            <div style={{background:"rgba(239,68,68,.08)",border:"0.5px solid rgba(239,68,68,.25)",borderRadius:6,padding:"8px 12px",fontSize:10,color:"#fca5a5",fontFamily:"monospace"}}>
+              ⚠ {dcError}
+            </div>
+          )}
+
+          {/* Loading spinner */}
+          {dcLoading&&(
+            <div style={{textAlign:"center",padding:"30px 10px"}}>
+              <div style={{fontSize:22,marginBottom:8,opacity:.5}}>🏢</div>
+              <div style={{fontSize:10,color:"#3b82f6",fontFamily:"monospace",animation:"blink 1s ease-in-out infinite"}}>
+                SCANNING OSINT SOURCES…
+              </div>
+              <div style={{fontSize:8,color:"#374151",fontFamily:"monospace",marginTop:4}}>
+                BGPView · PeeringDB · RIPE Stat · crt.sh · Overpass
+              </div>
+            </div>
+          )}
+
+          {/* Results */}
+          {dcResults&&!dcLoading&&(
+            <>
+              {/* Summary bar */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+                {[
+                  {n:dcResults.summary?.asn_count||0,      l:'ASNs',       c:'#3b82f6'},
+                  {n:dcResults.summary?.location_count||0, l:'Locations',  c:'#10b981'},
+                  {n:dcResults.summary?.prefix_count||0,   l:'IP Prefixes',c:'#f59e0b'},
+                  {n:dcResults.summary?.subdomain_count||0,l:'Subdomains', c:'#a855f7'},
+                ].map(s=>(
+                  <div key={s.l} style={{background:"#0d1320",border:`0.5px solid ${s.c}33`,borderRadius:6,padding:"8px 10px",textAlign:"center"}}>
+                    <div style={{fontSize:20,fontWeight:700,color:s.c,fontFamily:"monospace"}}>{s.n}</div>
+                    <div style={{fontSize:8,color:"#6b7280",fontFamily:"monospace"}}>{s.l}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Detail tab bar */}
+              <div style={{display:"flex",gap:4}}>
+                {[
+                  {id:'locations', label:`📍 Locations (${(dcResults.locations||[]).length})`},
+                  {id:'asns',      label:`⬡ ASNs (${(dcResults.asns||[]).length})`},
+                  {id:'prefixes',  label:`🌐 Prefixes (${(dcResults.prefixes||[]).length})`},
+                  {id:'subdomains',label:`🔍 Subdomains (${(dcResults.subdomains||[]).length})`},
+                ].map(t=>(
+                  <button key={t.id} onClick={()=>setDcDetailTab(t.id)}
+                    style={{padding:"4px 10px",borderRadius:4,fontSize:9,fontFamily:"monospace",cursor:"pointer",
+                      background:dcDetailTab===t.id?"rgba(59,130,246,.2)":"rgba(255,255,255,.03)",
+                      color:dcDetailTab===t.id?"#93c5fd":"#4b5563",
+                      border:`0.5px solid ${dcDetailTab===t.id?"rgba(59,130,246,.4)":"rgba(255,255,255,.07)"}`}}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Locations tab */}
+              {dcDetailTab==='locations'&&(
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {(dcResults.locations||[]).length===0?(
+                    <div style={{textAlign:"center",padding:"20px",fontSize:10,color:"#4b5563",fontFamily:"monospace"}}>
+                      No physical locations found. Try adding a domain with --domain flag or check ASN coverage.
+                    </div>
+                  ):(dcResults.locations||[]).map((loc,i)=>{
+                    const confColor = loc.confidence==='high'?'#10b981':loc.confidence==='medium'?'#f59e0b':'#6b7280';
+                    const srcColor  = loc.source==='peeringdb'?'#3b82f6':loc.source==='osm'?'#a78bfa':'#f97316';
+                    return (
+                      <div key={i} style={{background:"#0b1119",border:"0.5px solid rgba(59,130,246,.12)",borderRadius:6,padding:"8px 10px"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                          <div style={{fontSize:11,color:"#e5e7eb",fontFamily:"monospace",fontWeight:600}}>{loc.name||'Unknown'}</div>
+                          <div style={{display:"flex",gap:4}}>
+                            <span style={{fontSize:8,padding:"1px 6px",borderRadius:3,background:`${confColor}18`,color:confColor,border:`0.5px solid ${confColor}44`,fontFamily:"monospace"}}>{(loc.confidence||'').toUpperCase()}</span>
+                            <span style={{fontSize:8,padding:"1px 6px",borderRadius:3,background:`${srcColor}18`,color:srcColor,border:`0.5px solid ${srcColor}44`,fontFamily:"monospace"}}>{(loc.source||'').toUpperCase()}</span>
+                          </div>
+                        </div>
+                        <div style={{fontSize:9,color:"#6b7280",fontFamily:"monospace",lineHeight:1.6}}>
+                          {loc.city&&<span>{loc.city}{loc.country?`, ${loc.country}`:''} &nbsp;·&nbsp; </span>}
+                          {loc.lat&&<span>📍 {Number(loc.lat).toFixed(4)}, {Number(loc.lng).toFixed(4)}</span>}
+                          {loc.address&&<div style={{marginTop:2,color:"#4b5563"}}>{loc.address}</div>}
+                          {loc.website&&<a href={loc.website} target="_blank" rel="noreferrer" style={{color:"#3b82f6",fontSize:8}}>{loc.website}</a>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ASNs tab */}
+              {dcDetailTab==='asns'&&(
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {(dcResults.asns||[]).map((a,i)=>(
+                    <div key={i} style={{background:"#0b1119",border:"0.5px solid rgba(59,130,246,.1)",borderRadius:6,padding:"8px 10px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between"}}>
+                        <span style={{fontSize:11,color:"#60a5fa",fontFamily:"monospace",fontWeight:600}}>AS{a.asn}</span>
+                        <span style={{fontSize:8,color:"#4b5563",fontFamily:"monospace"}}>{a.source}</span>
+                      </div>
+                      <div style={{fontSize:10,color:"#d1d5db",fontFamily:"monospace",marginTop:2}}>{a.name}</div>
+                      {a.description&&<div style={{fontSize:9,color:"#6b7280",fontFamily:"monospace",marginTop:1}}>{a.description}</div>}
+                      {a.country&&<div style={{fontSize:9,color:"#4b5563",fontFamily:"monospace"}}>Country: {a.country}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Prefixes tab */}
+              {dcDetailTab==='prefixes'&&(
+                <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                  {(dcResults.prefixes||[]).map((p,i)=>(
+                    <div key={i} style={{background:"#0b1119",border:"0.5px solid rgba(245,158,11,.08)",borderRadius:4,padding:"6px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:10,color:"#fbbf24",fontFamily:"monospace"}}>{p.prefix}</span>
+                      <span style={{fontSize:8,color:"#6b7280",fontFamily:"monospace",maxWidth:"55%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.description||p.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Subdomains tab */}
+              {dcDetailTab==='subdomains'&&(
+                <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                  {(dcResults.subdomains||[]).map((s,i)=>(
+                    <div key={i} style={{background:"#0b1119",border:"0.5px solid rgba(168,85,247,.08)",borderRadius:4,padding:"5px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:9,color:"#c084fc",fontFamily:"monospace"}}>{s.subdomain}</span>
+                      <span style={{fontSize:8,color:"#4b5563",fontFamily:"monospace"}}>{s.not_before?.slice(0,10)}</span>
+                    </div>
+                  ))}
+                  {(dcResults.subdomains||[]).length===0&&(
+                    <div style={{textAlign:"center",padding:"20px",fontSize:10,color:"#4b5563",fontFamily:"monospace"}}>
+                      No subdomains found — provide a domain name (e.g. google.com) to harvest CT logs.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Elapsed */}
+              <div style={{fontSize:8,color:"#1f2937",fontFamily:"monospace",textAlign:"right"}}>
+                Query completed in {dcResults.elapsed_ms}ms · {new Date().toISOString().slice(0,19)} UTC
+              </div>
+            </>
+          )}
+
+          {/* Empty state */}
+          {!dcResults&&!dcLoading&&!dcError&&(
+            <div style={{textAlign:"center",padding:"40px 10px"}}>
+              <div style={{fontSize:28,marginBottom:12,opacity:.3}}>🏢</div>
+              <div style={{fontSize:11,color:"#4b5563",fontFamily:"monospace",marginBottom:6}}>Data Center Locator</div>
+              <div style={{fontSize:9,color:"#374151",fontFamily:"monospace",lineHeight:1.9}}>
+                Enter a company name, domain, or ASN above<br/>
+                Resolves ASNs → BGP prefixes → physical facilities<br/>
+                PeeringDB colocations · OSM buildings · CT subdomains<br/>
+                Offline mode: use <code style={{color:"#f59e0b"}}>datacenter_locator.py --help</code>
               </div>
             </div>
           )}

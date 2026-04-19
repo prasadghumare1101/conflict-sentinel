@@ -17,6 +17,7 @@
     "api/earthquakes.js":          { "maxDuration": 15 },
     "api/natural-events.js":       { "maxDuration": 15 },
     "api/humanitarian.js":         { "maxDuration": 10 },
-    "api/internet-disruptions.js": { "maxDuration": 15 }
+    "api/internet-disruptions.js":  { "maxDuration": 15 },
+    "api/datacenter-locator.js":    { "maxDuration": 55 }
   }
 }

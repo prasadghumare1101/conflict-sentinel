@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "ignoreCommand": "exit 1",
   "installCommand": "npm install && cd frontend && npm install",
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/dist",
